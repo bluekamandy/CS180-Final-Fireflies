@@ -7,6 +7,8 @@
 
 namespace masood
 {
+    float randFloat(float l, float h);
+
     // Drawback of my method is that it doesn't check for numeric types
     // or bad input. This is beyond my capabilities right now.
 

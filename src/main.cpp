@@ -43,9 +43,11 @@ public:
 	// DATA: GLOBAL SCENE PROPERTIES
 	// =======================================================================
 
-	int howManyTrees = 100;
+	int howManyTrees = 500;
 	vector<glm::vec3> treePositions;
 	vector<float> treeRotations;
+
+	int howManySpheres = 5000;
 
 	// =======================================================================
 	// DATA: SHADER PROGRAMS AND SHAPES
@@ -58,6 +60,7 @@ public:
 	// Shape to be used (from obj file)
 	shared_ptr<Shape> nefertiti;
 	vector<shared_ptr<Shape>> tree;
+	shared_ptr<Shape> sphere;
 
 	// =======================================================================
 	// DATA: TEXTURES (TO BE CONTINUED)
@@ -109,8 +112,8 @@ public:
 	double g_phi, g_theta;
 	vec3 view = vec3(0, 0, 1);
 	vec3 strafe = vec3(1, 0, 0);
-	vec3 g_eye = vec3(0, 1, 0);
-	vec3 g_lookAt = vec3(0, 1, -1);
+	vec3 g_eye = vec3(0, -0.5, 0);
+	vec3 g_lookAt = vec3(0, -0.5, -1);
 	bool MOVEF = false;
 	bool MOVEB = false;
 	bool MOVER = false;
@@ -121,6 +124,8 @@ public:
 	// =======================================================================
 
 	vec3 g_light = vec3(2, 6, 6);
+	vector<vec3> lightPositions;
+	vector<vec3> lightColors;
 
 	// =======================================================================
 	// RENDER LOOP
@@ -203,7 +208,11 @@ public:
 		// }
 
 		// Trees
+		// Grayish Brown: [Red:0.394 green:0.317 blue:0.250 alpha:1.0]
+		SetMaterialColor(prog, vec3(0.394, 0.317, 0.250));
 		drawTrees(Model);
+
+		drawSpheres(Model);
 
 		// Ground
 		textureGround->bind(prog->getUniform("texture0"));
@@ -309,6 +318,8 @@ public:
 		texProg->addAttribute("vertPos");
 		texProg->addAttribute("vertTex");
 		texProg->addUniform("Ldir");
+		texProg->addUniform("lightPositions");
+		texProg->addUniform("lightColors");
 		texProg->addUniform("gPosition");
 		texProg->addUniform("gNormal");
 		texProg->addUniform("gColorSpec");
@@ -322,6 +333,18 @@ public:
 		textureGround->init();
 		textureGround->setUnit(0);
 		textureGround->setWrapModes(GL_REPEAT, GL_REPEAT);
+
+		textureTreeMain = make_shared<Texture>();
+		textureTreeMain->setFilename(resourceDirectory + "/broadleaf_hero_field/Textures/Main_Bark_Color.jpg");
+		textureTreeMain->init();
+		textureTreeMain->setUnit(1);
+		textureTreeMain->setWrapModes(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+
+		textureTreeShell = make_shared<Texture>();
+		textureTreeShell->setFilename(resourceDirectory + "/broadleaf_hero_field/Textures/Shell_Bark_Color.jpg");
+		textureTreeShell->init();
+		textureTreeShell->setUnit(2);
+		textureTreeShell->setWrapModes(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 
 		initBuffers();
 	}
@@ -435,12 +458,12 @@ public:
 		// CREATE TREE POSITIONS
 		for (int i = 0; i < howManyTrees; i++)
 		{
-			float x_lo = -25.0f;
-			float x_hi = 15.0f;
+			float x_lo = -50.0f;
+			float x_hi = 50.0f;
 			float x = x_lo + static_cast<float>(rand()) / (static_cast<float>(RAND_MAX / (x_hi - x_lo)));
 
-			float z_lo = -15.0f;
-			float z_hi = 25.0f;
+			float z_lo = -50.0f;
+			float z_hi = 50.0f;
 			float z = z_lo + static_cast<float>(rand()) / (static_cast<float>(RAND_MAX / (z_hi - z_lo)));
 
 			treePositions.push_back(glm::vec3(x, -1.25, z));
@@ -474,6 +497,60 @@ public:
 			nefertiti->init();
 		}
 
+		/*
+		* SPHERE MESH
+		*/
+
+		vector<tinyobj::shape_t> sphereShapes;
+		vector<tinyobj::material_t> sphereMaterials;
+		//load in the mesh and make the shape(s)
+		rc = tinyobj::LoadObj(sphereShapes, sphereMaterials, errStr, (resourceDirectory + "/smoothSphere.obj").c_str());
+		if (!rc)
+		{
+			cerr << errStr << endl;
+		}
+		else
+		{
+			normalizeGeometry(sphereShapes);
+			sphere = make_shared<Shape>();
+			sphere->createShape(sphereShapes[0]);
+			sphere->measure();
+			sphere->init();
+		}
+
+		// CREATE SPHERE POSITIONS
+		for (int i = 0; i < howManySpheres; i++)
+		{
+			// Every time we create a sphere these are created.
+			bool tooClose = false;
+			float distanceThreshold = 0.000025f;
+
+			float x, y, z;
+
+			do
+			{
+				// Generate random floats.
+				x = randFloat(-50.0f, 50.0f);
+				y = randFloat(0.0f, 0.5f);
+				z = randFloat(-50.0f, 50.0f);
+
+				// Check that x,y,z are far enough away from already generated orb positions
+				for (int i = 0; i < lightPositions.size(); i++)
+				{
+					if (glm::distance(lightPositions[i], glm::vec3(x, y, z)) < distanceThreshold)
+					{
+						tooClose = true;
+						break;
+					}
+				}
+
+			} while (tooClose == true);
+
+			// LOG("Created position at " << glm::to_string(vec3(x, y, x)));
+
+			lightPositions.push_back(glm::vec3(x, y, z));
+			lightColors.push_back(glm::vec3(randFloat(0.0, 1.0), randFloat(0.0, 1.0), randFloat(0.0, 1.0)));
+		}
 		//Initialize the geometry to render a quad to the screen
 		initQuad();
 		initGround();
@@ -648,6 +725,10 @@ public:
 	// DRAW FUNCTIONS
 	// =======================================================================
 
+	/*
+	* TREES
+	*/
+
 	void drawTrees(shared_ptr<MatrixStack> Model)
 	{
 		for (int i = 0; i < howManyTrees; i++)
@@ -665,9 +746,38 @@ public:
 			{
 				if (i == 2 || i == 1)
 					continue;
+				if (i == 0)
+					textureTreeShell->bind(prog->getUniform("Texture0"));
+				if (i == 3)
+					textureTreeMain->bind(prog->getUniform("Texture0"));
 				tree[i]->draw(prog);
 			}
 
+			Model->popMatrix();
+
+			Model->popMatrix();
+		}
+	}
+
+	/*
+	* SPHERES
+	*/
+
+	void drawSpheres(shared_ptr<MatrixStack> Model)
+	{
+		for (int i = 0; i < howManySpheres; i++)
+		{
+			Model->pushMatrix();
+			Model->loadIdentity();
+			Model->translate(vec3(lightPositions[i].x, lightPositions[i].y - 0.75f, lightPositions[i].z));
+
+			//draw the torso with these transforms
+			Model->pushMatrix();
+			Model->scale(vec3(0.025, 0.025, 0.025));
+			SetMaterialColor(prog, lightColors[i]);
+			// glUniformMatrix4fv(prog->getUniform("M"), 1, GL_FALSE, value_ptr(Model->topMatrix()));
+			setModel(prog, Model);
+			sphere->draw(prog);
 			Model->popMatrix();
 
 			Model->popMatrix();
@@ -750,6 +860,12 @@ public:
 			glUniform3f(curS->getUniform("MatDif"), 0.7038f, 0.27048f, 0.0828f);
 			break;
 		}
+	}
+	// helper function to set materials for shading
+	void SetMaterialColor(shared_ptr<Program> curS, vec3 color)
+	{
+		glUniform3f(curS->getUniform("MatAmb"), color.r / 10.0f, color.g / 10.0f, color.b / 10.0f);
+		glUniform3f(curS->getUniform("MatDif"), color.r, color.g, color.b);
 	}
 
 	// =======================================================================

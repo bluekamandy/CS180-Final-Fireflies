@@ -60,7 +60,7 @@ void main(){
    // FIRST WE DO IT WITH A SINGLE LIGHT
 
    vec3 lightDir = normalize(Ldir - FragPos);
-   vec3 diffuse = max(dot(Normal, lightDir), 0.0) * Diffuse * vec3(0.0,1.0,0.0); // replaced color with 1.0
+   vec3 diffuse = max(dot(Normal, lightDir), 0.0) * Diffuse * vec3(1.0,1.0,1.0); // replaced color with 1.0
 
    // specular
    vec3 halfwayDir = normalize(lightDir + viewDir);  
