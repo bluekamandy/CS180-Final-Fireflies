@@ -7,18 +7,24 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <glm/gtc/type_ptr.hpp>
+#include <tiny_obj_loader/tiny_obj_loader.h>
 
 class Program;
+
 
 class Shape
 {
 
 public:
 
-	void loadMesh(const std::string &meshName);
+	void createShape(tinyobj::shape_t & shape);
 	void init();
-	void resize();
+	void measure();
 	void draw(const std::shared_ptr<Program> prog) const;
+
+	glm::vec3 min = glm::vec3(0);
+	glm::vec3 max = glm::vec3(0);
 
 private:
 
@@ -26,7 +32,6 @@ private:
 	std::vector<float> posBuf;
 	std::vector<float> norBuf;
 	std::vector<float> texBuf;
-
 	unsigned int eleBufID = 0;
 	unsigned int posBufID = 0;
 	unsigned int norBufID = 0;

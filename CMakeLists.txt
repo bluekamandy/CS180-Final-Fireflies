@@ -13,7 +13,7 @@ file(GLOB_RECURSE SOURCES "${CMAKE_SOURCE_DIR}/src/*.cpp" "${CMAKE_SOURCE_DIR}/e
 
 # We don't really need to include header and resource files to build, but it's
 # nice to have them show up in IDEs.
-file(GLOB_RECURSE HEADERS "src/*.h" "ext/*/*.h" "ext/glad/*/*.h")
+file(GLOB_RECURSE HEADERS "src/*.h" "src/*.hpp" "ext/*/*.h" "ext/*/*.hpp" "ext/glad/*/*.h" "ext/glad/*/*.hpp")
 file(GLOB_RECURSE GLSL "resources/*.glsl")
 
 include_directories("ext")

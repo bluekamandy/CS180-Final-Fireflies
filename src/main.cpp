@@ -1,7 +1,12 @@
 /*
-Base code for deferred shading
-Winter 2017, updated May 2020 - ZJW (Piddington texture write)
-*/
+ * CS180 Final Project Fireflies
+ *
+ * by MASOOD
+ * 
+ * Initiated: 5/31/2021
+ * Last updated: 6/8/2021
+ * 
+ * */
 
 #include <iostream>
 #include <glad/glad.h>
@@ -12,6 +17,13 @@ Winter 2017, updated May 2020 - ZJW (Piddington texture write)
 #include "Shape.h"
 #include "WindowManager.h"
 #include "GLTextureWriter.h"
+#include "Texture.h"
+
+#include "Common.hpp"
+
+#define TINYOBJLOADER_IMPLEMENTATION
+#include <tiny_obj_loader/tiny_obj_loader.h>
+#define PI 3.1415927
 
 // value_ptr for glm
 #include <glm/gtc/type_ptr.hpp>
@@ -19,6 +31,7 @@ Winter 2017, updated May 2020 - ZJW (Piddington texture write)
 
 using namespace std;
 using namespace glm;
+using namespace masood;
 
 class Application : public EventCallbacks
 {
@@ -26,12 +39,38 @@ class Application : public EventCallbacks
 public:
 	WindowManager *windowManager = nullptr;
 
+	// =======================================================================
+	// DATA: GLOBAL SCENE PROPERTIES
+	// =======================================================================
+
+	int howManyTrees = 100;
+	vector<glm::vec3> treePositions;
+	vector<float> treeRotations;
+
+	// =======================================================================
+	// DATA: SHADER PROGRAMS AND SHAPES
+	// =======================================================================
+
 	// Our shader program
 	std::shared_ptr<Program> prog;
 	std::shared_ptr<Program> texProg;
 
 	// Shape to be used (from obj file)
-	shared_ptr<Shape> shape;
+	shared_ptr<Shape> nefertiti;
+	vector<shared_ptr<Shape>> tree;
+
+	// =======================================================================
+	// DATA: TEXTURES (TO BE CONTINUED)
+	// =======================================================================
+
+	//the image to use as a texture (ground)
+	shared_ptr<Texture> textureGround;
+	shared_ptr<Texture> textureTreeMain;
+	shared_ptr<Texture> textureTreeShell;
+
+	// =======================================================================
+	// DATA: GOODIES FOR DEFERRED SHADING
+	// =======================================================================
 
 	// Contains vertex information for OpenGL
 	GLuint VertexArrayID;
@@ -50,7 +89,21 @@ public:
 
 	bool FirstTime = true;
 	bool Defer = false;
-	int gMat = 0;
+	// int gMat = 0;
+
+	// =======================================================================
+	// DATA: GROUND PLANE
+	// =======================================================================
+
+	//global data for ground plane - direct load constant defined CPU data to GPU (not obj)
+	GLuint GrndBuffObj, GrndNorBuffObj, GrndTexBuffObj, GIndxBuffObj;
+	int g_GiboLen;
+	//ground VAO
+	GLuint GroundVertexArrayID;
+
+	// =======================================================================
+	// DATA: CAMERA CONTROL
+	// =======================================================================
 
 	//camera control - you can ignore - what matters is eye location and view matrix
 	double g_phi, g_theta;
@@ -63,7 +116,146 @@ public:
 	bool MOVER = false;
 	bool MOVEL = false;
 
+	// =======================================================================
+	// DATA: LIGHTING
+	// =======================================================================
+
 	vec3 g_light = vec3(2, 6, 6);
+
+	// =======================================================================
+	// RENDER LOOP
+	// =======================================================================
+
+	void render()
+	{
+		// Get current frame buffer size.
+		int width, height;
+		glfwGetFramebufferSize(windowManager->getHandle(), &width, &height);
+		glViewport(0, 0, width, height);
+
+		//camera movement - made continuous while keypressed
+		float speed = 0.1;
+		if (MOVEL)
+		{
+			g_eye -= speed * strafe;
+			g_lookAt -= speed * strafe;
+		}
+		else if (MOVER)
+		{
+			g_eye += speed * strafe;
+			g_lookAt += speed * strafe;
+		}
+		else if (MOVEF)
+		{
+			g_eye -= speed * view;
+			g_lookAt -= speed * view;
+		}
+		else if (MOVEB)
+		{
+			g_eye += speed * view;
+			g_lookAt += speed * view;
+		}
+
+		// For deferred shading.
+		glBindFramebuffer(GL_FRAMEBUFFER, gBuffer);
+
+		// Clear framebuffer.
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+		/* Leave this code to just draw the meshes alone */
+		float aspect = width / (float)height;
+
+		// Create the matrix stacks - please leave these alone for now
+		auto Projection = make_shared<MatrixStack>();
+		auto Model = make_shared<MatrixStack>();
+
+		// Apply perspective projection. NEW
+		Projection->pushMatrix();
+		Projection->perspective(45.0f, aspect, 0.01f, 100.0f);
+
+		//Draw our scene - two meshes - right now to a texture
+		prog->bind();
+
+		// Apply perspective projection. OLD
+		// mat4 P = SetProjectionMatrix(prog);
+		// mat4 V = SetView(prog);
+
+		// Create the matrices
+		glUniformMatrix4fv(prog->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
+		SetView(prog);
+
+		//draw a circle of Nefs
+		// float tx, tz, theta = 0;
+		// for (int i = 0; i < 10; i++)
+		// {
+		// 	tx = (4.f) * sin(theta);
+		// 	tz = (4.f) * cos(theta);
+		// 	/* draw left mesh */
+		// 	mat4 trans;
+		// 	mat4 r1, r2;
+		// 	trans = translate(mat4(1.0f), vec3(tx, 0.5f, tz));
+		// 	r2 = rotate(mat4(1.0f), 3.14f + theta, vec3(0, 1, 0));
+		// 	r1 = rotate(mat4(1.0f), -radians(90.0f), vec3(1, 0, 0));
+		// 	SetModel(prog, trans * r2 * r1);
+		// 	SetMaterial(prog, i % 4);
+		// 	nefertiti->draw(prog);
+		// 	theta += 6.28f / 10.f;
+		// }
+
+		// Trees
+		drawTrees(Model);
+
+		// Ground
+		textureGround->bind(prog->getUniform("texture0"));
+		drawGround(prog);
+
+		prog->unbind();
+
+		/* now draw the actual output */
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+		// example applying of 'drawing' the FBO texture - change shaders
+		texProg->bind();
+		// FIXME: Next 3 lines may be unnecessary if we're just using deferred.
+		// glActiveTexture(GL_TEXTURE0);
+		// glBindTexture(GL_TEXTURE_2D, gPosition);
+		// glUniform1i(texProg->getUniform("texBuf"), 0); //
+		// Masood addition
+		glActiveTexture(GL_TEXTURE0 + 1);
+		glBindTexture(GL_TEXTURE_2D, gNormal);
+		glActiveTexture(GL_TEXTURE0 + 2);
+		glBindTexture(GL_TEXTURE_2D, gColorSpec);
+		glUniform1i(texProg->getUniform("gPosition"), 0);
+		glUniform1i(texProg->getUniform("gNormal"), 1);
+		glUniform1i(texProg->getUniform("gColorSpec"), 2);
+		// End Masood addition
+		glUniform3f(texProg->getUniform("Ldir"), g_light.x, g_light.y, g_light.z);
+		glEnableVertexAttribArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, quad_vertexbuffer);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void *)0);
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+		glDisableVertexAttribArray(0);
+
+		texProg->unbind();
+
+		/*code to write out the FBO (texture) just once -an example*/
+		if (FirstTime)
+		{
+			assert(GLTextureWriter::WriteImage(gBuffer, "gBuf.png"));
+			assert(GLTextureWriter::WriteImage(gPosition, "gPos.png"));
+			assert(GLTextureWriter::WriteImage(gNormal, "gNorm.png"));
+			assert(GLTextureWriter::WriteImage(gColorSpec, "gColorSpec.png"));
+			FirstTime = false;
+		}
+
+		// Pop matrix stacks.
+		Projection->popMatrix();
+	}
+
+	// =======================================================================
+	// SHADER INIT
+	// =======================================================================
 
 	void init(const std::string &resourceDirectory)
 	{
@@ -72,15 +264,17 @@ public:
 		g_phi = 0;
 		g_theta = -3.14 / 2.0;
 
-		// Set background color.
-		//glClearColor(.12f, .34f, .56f, 1.0f);
+		// BACKGROUND COLOR
 		glClearColor(0, 0, 0, 1.0f);
 		// Enable z-buffer test.
 		glEnable(GL_DEPTH_TEST);
 
-		// Initialize the GLSL program.
+		/*
+		*  GEOMETRY PASS: THIS DRAWS ALL THE GEOMETRY AND SETS UP THE GBUFFERS
+		*/
+
 		prog = make_shared<Program>();
-		prog->setVerbose(true);
+		prog->setVerbose(false);
 		prog->setShaderNames(
 			resourceDirectory + "/simple_vert.glsl",
 			resourceDirectory + "/gbuf_frag.glsl");
@@ -92,15 +286,18 @@ public:
 		prog->addUniform("P");
 		prog->addUniform("V");
 		prog->addUniform("M");
+		prog->addUniform("texture0");
 		prog->addUniform("MatAmb");
 		prog->addUniform("MatDif");
 		prog->addAttribute("vertPos");
 		prog->addAttribute("vertNor");
 
-		//set up the shaders to blur the FBO just a placeholder pass thru now
-		//next lab modify and possibly add other shaders to complete blur
+		/*
+		*  LIGHTING PASS: THIS IS WHERE DEFERRED SHADING HAPPENS
+		*/
+
 		texProg = make_shared<Program>();
-		texProg->setVerbose(true);
+		texProg->setVerbose(false);
 		texProg->setShaderNames(
 			resourceDirectory + "/pass_vert.glsl",
 			resourceDirectory + "/tex_frag_modified.glsl");
@@ -109,15 +306,29 @@ public:
 			std::cerr << "One or more shaders failed to compile... exiting!" << std::endl;
 			exit(1);
 		}
-		texProg->addUniform("texBuf");
 		texProg->addAttribute("vertPos");
+		texProg->addAttribute("vertTex");
 		texProg->addUniform("Ldir");
 		texProg->addUniform("gPosition");
 		texProg->addUniform("gNormal");
 		texProg->addUniform("gColorSpec");
 
+		/*
+		*  LOAD TEXTURES
+		*/
+
+		textureGround = make_shared<Texture>();
+		textureGround->setFilename(resourceDirectory + "/ground.jpg");
+		textureGround->init();
+		textureGround->setUnit(0);
+		textureGround->setWrapModes(GL_REPEAT, GL_REPEAT);
+
 		initBuffers();
 	}
+
+	// =======================================================================
+	// BUFFER INIT
+	// =======================================================================
 
 	void initBuffers()
 	{
@@ -189,182 +400,83 @@ public:
 		}
 	}
 
+	// =======================================================================
+	// GEOMETRY INIT
+	// =======================================================================
+
 	void initGeom(const std::string &resourceDirectory)
 	{
-		// Initialize the obj mesh VBOs etc
-		shape = make_shared<Shape>();
-		shape->loadMesh(resourceDirectory + "/Nefertiti-100K.obj");
-		shape->resize();
-		shape->init();
+		string errStr;
 
-		//Initialize the geometry to render a quad to the screen
-		initQuad();
-	}
+		/*
+		* TREE MESH
+		*/
 
-	void render()
-	{
-		// Get current frame buffer size.
-		int width, height;
-		glfwGetFramebufferSize(windowManager->getHandle(), &width, &height);
-		glViewport(0, 0, width, height);
-
-		//camera movement - made continuous while keypressed
-		float speed = 0.2;
-		if (MOVEL)
+		vector<tinyobj::shape_t> treeShapes;
+		vector<tinyobj::material_t> treeMaterials;
+		//load in the mesh and make the shape(s)
+		bool rc = tinyobj::LoadObj(treeShapes, treeMaterials, errStr, (resourceDirectory + "/broadleaf_hero_field/OBJ format/broadleaf_hero_field.obj").c_str());
+		if (!rc)
 		{
-			g_eye -= speed * strafe;
-			g_lookAt -= speed * strafe;
-		}
-		else if (MOVER)
-		{
-			g_eye += speed * strafe;
-			g_lookAt += speed * strafe;
-		}
-		else if (MOVEF)
-		{
-			g_eye -= speed * view;
-			g_lookAt -= speed * view;
-		}
-		else if (MOVEB)
-		{
-			g_eye += speed * view;
-			g_lookAt += speed * view;
-		}
-
-		if (Defer)
-		{
-			glBindFramebuffer(GL_FRAMEBUFFER, gBuffer);
+			cerr << errStr << endl;
 		}
 		else
 		{
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		}
-
-		// Clear framebuffer.
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-		/* Leave this code to just draw the meshes alone */
-		float aspect = width / (float)height;
-
-		//Draw our scene - two meshes - right now to a texture
-		prog->bind();
-
-		// Create the matrices
-		mat4 P = SetProjectionMatrix(prog);
-		mat4 V = SetView(prog);
-
-		//draw a circle of Nefs
-		float tx, tz, theta = 0;
-		for (int i = 0; i < 10; i++)
-		{
-			tx = (4.f) * sin(theta);
-			tz = (4.f) * cos(theta);
-			/* draw left mesh */
-			mat4 trans;
-			mat4 r1, r2;
-			trans = translate(glm::mat4(1.0f), vec3(tx, 0.5f, tz));
-			r2 = rotate(glm::mat4(1.0f), 3.14f + theta, vec3(0, 1, 0));
-			r1 = rotate(glm::mat4(1.0f), -radians(90.0f), vec3(1, 0, 0));
-			SetModel(prog, trans * r2 * r1);
-			SetMaterial(i % 4);
-			shape->draw(prog);
-			theta += 6.28f / 10.f;
-		}
-
-		prog->unbind();
-
-		if (Defer)
-		{
-			/* now draw the actual output */
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-			// example applying of 'drawing' the FBO texture - change shaders
-			texProg->bind();
-			glActiveTexture(GL_TEXTURE0);
-			glBindTexture(GL_TEXTURE_2D, gPosition);
-			glUniform1i(texProg->getUniform("texBuf"), 0); //
-			// Masood addition
-			glActiveTexture(GL_TEXTURE0 + 1);
-			glBindTexture(GL_TEXTURE_2D, gNormal);
-			glActiveTexture(GL_TEXTURE0 + 2);
-			glBindTexture(GL_TEXTURE_2D, gColorSpec);
-			glUniform1i(texProg->getUniform("gPosition"), 0);
-			glUniform1i(texProg->getUniform("gNormal"), 1);
-			glUniform1i(texProg->getUniform("gColorSpec"), 2);
-			// End Masood addition
-			glUniform3f(texProg->getUniform("Ldir"), g_light.x, g_light.y, g_light.z);
-			glEnableVertexAttribArray(0);
-			glBindBuffer(GL_ARRAY_BUFFER, quad_vertexbuffer);
-			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void *)0);
-			glDrawArrays(GL_TRIANGLES, 0, 6);
-			glDisableVertexAttribArray(0);
-			texProg->unbind();
-
-			/*code to write out the FBO (texture) just once -an example*/
-			if (FirstTime)
+			normalizeGeometry(treeShapes);
+			for (unsigned int i = 0; i < treeShapes.size(); i++)
 			{
-				assert(GLTextureWriter::WriteImage(gBuffer, "gBuf.png"));
-				assert(GLTextureWriter::WriteImage(gPosition, "gPos.png"));
-				assert(GLTextureWriter::WriteImage(gNormal, "gNorm.png"));
-				assert(GLTextureWriter::WriteImage(gColorSpec, "gColorSpec.png"));
-				FirstTime = false;
+				tree.push_back(make_shared<Shape>());
+				tree[i]->createShape(treeShapes[i]);
+				tree[i]->measure();
+				tree[i]->init();
 			}
 		}
-	}
 
-	// To complete image processing on the specificed texture
-	// Right now just draws large quad to the screen that is texture mapped
-	// with the prior scene image - next lab we will process
-	void DrawQuad(GLuint inTex)
-	{
+		// CREATE TREE POSITIONS
+		for (int i = 0; i < howManyTrees; i++)
+		{
+			float x_lo = -25.0f;
+			float x_hi = 15.0f;
+			float x = x_lo + static_cast<float>(rand()) / (static_cast<float>(RAND_MAX / (x_hi - x_lo)));
 
-		// example applying of 'drawing' the FBO texture - change shaders
-		texProg->bind();
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, inTex);
-		glUniform1i(texProg->getUniform("texBuf"), 0);
-		glUniform3f(texProg->getUniform("Ldir"), 1, -1, 0);
-		glEnableVertexAttribArray(0);
-		glBindBuffer(GL_ARRAY_BUFFER, quad_vertexbuffer);
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void *)0);
-		glDrawArrays(GL_TRIANGLES, 0, 6);
-		glDisableVertexAttribArray(0);
-		texProg->unbind();
-	}
+			float z_lo = -15.0f;
+			float z_hi = 25.0f;
+			float z = z_lo + static_cast<float>(rand()) / (static_cast<float>(RAND_MAX / (z_hi - z_lo)));
 
-	/* helper functions for sending matrix data to the GPU */
-	mat4 SetProjectionMatrix(shared_ptr<Program> curShade)
-	{
-		int width, height;
-		glfwGetFramebufferSize(windowManager->getHandle(), &width, &height);
-		float aspect = width / (float)height;
-		mat4 Projection = perspective(radians(50.0f), aspect, 0.1f, 100.0f);
-		glUniformMatrix4fv(curShade->getUniform("P"), 1, GL_FALSE, value_ptr(Projection));
-		return Projection;
-	}
-	/* model transforms - normal */
-	void SetModel(shared_ptr<Program> curS, mat4 m)
-	{
-		glUniformMatrix4fv(curS->getUniform("M"), 1, GL_FALSE, value_ptr(m));
-	}
+			treePositions.push_back(glm::vec3(x, -1.25, z));
 
-	/*normal game camera */
-	mat4 SetView(shared_ptr<Program> curShade)
-	{
-		mat4 Cam = lookAt(g_eye, g_lookAt, vec3(0, 1, 0));
-		glUniformMatrix4fv(curShade->getUniform("V"), 1, GL_FALSE, value_ptr(Cam));
-		return Cam;
-	}
+			float r_lo = 0.0f;
+			float r_hi = 360.0f;
+			float r = r_lo + static_cast<float>(rand()) / (static_cast<float>(RAND_MAX / (r_hi - r_lo)));
 
-	void mouseCallback(GLFWwindow *window, int button, int action, int mods)
-	{
-		cout << "use two finger mouse scroll" << endl;
-	}
+			treeRotations.push_back(r);
+		}
 
-	void resizeCallback(GLFWwindow *window, int width, int height)
-	{
-		glViewport(0, 0, width, height);
+		/*
+		* NEFERTITI MESH
+		*/
+
+		vector<tinyobj::shape_t>
+			nefertitiShapes;
+		vector<tinyobj::material_t> nefertitiMaterials;
+		//load in the mesh and make the shape(s)
+		rc = tinyobj::LoadObj(nefertitiShapes, nefertitiMaterials, errStr, (resourceDirectory + "/Nefertiti-100K.obj").c_str());
+		if (!rc)
+		{
+			cerr << errStr << endl;
+		}
+		else
+		{
+			normalizeGeometry(nefertitiShapes);
+			nefertiti = make_shared<Shape>();
+			nefertiti->createShape(nefertitiShapes[0]);
+			nefertiti->measure();
+			nefertiti->init();
+		}
+
+		//Initialize the geometry to render a quad to the screen
+		initQuad();
+		initGround();
 	}
 
 	/**** geometry set up for a quad *****/
@@ -401,13 +513,263 @@ public:
 		glBufferData(GL_ARRAY_BUFFER, sizeof(g_quad_vertex_buffer_data), g_quad_vertex_buffer_data, GL_STATIC_DRAW);
 	}
 
+	// Normalize Geometry
+	// Source: https://github.com/tinyobjloader/tinyobjloader/issues/62
+	double getGreatestDimension(std::vector<tinyobj::shape_t> &shapes)
+	{
+		// Find greatest (highest or lowest) value of position of vertex
+		double greatest = 0.0;
+
+		for (size_t i = 0; i < shapes.size(); i++)
+		{
+			assert((shapes[i].mesh.positions.size() % 3) == 0);
+			for (size_t v = 0; v < shapes[i].mesh.positions.size() / 3; v++)
+			{
+				float x = abs(shapes[i].mesh.positions[3 * v + 0]);
+				float y = abs(shapes[i].mesh.positions[3 * v + 1]);
+				float z = abs(shapes[i].mesh.positions[3 * v + 2]);
+
+				if (x > abs(greatest))
+					greatest = x;
+				if (y > abs(greatest))
+					greatest = y;
+				if (z > abs(greatest))
+					greatest = z;
+			}
+		}
+
+		return greatest;
+	}
+
+	// Normalize Geometry
+	// Source: https://github.com/tinyobjloader/tinyobjloader/issues/62
+	void normalizeGeometry(std::vector<tinyobj::shape_t> &shapes)
+	{
+		double greatest = getGreatestDimension(shapes);
+		assert(greatest > 0.0);
+
+		for (size_t i = 0; i < shapes.size(); i++)
+		{
+			for (size_t v = 0; v < shapes[i].mesh.positions.size() / 3; v++)
+			{
+				shapes[i].mesh.positions[3 * v + 0] /= greatest; // normalize x
+				shapes[i].mesh.positions[3 * v + 1] /= greatest; // normalize y
+				shapes[i].mesh.positions[3 * v + 2] /= greatest; // normalize z
+			}
+		}
+	}
+
+	// =======================================================================
+	// GROUND PLANE
+	// =======================================================================
+
+	void initGround()
+	{
+
+		float g_groundSize = 100;
+		float g_groundY = 0.0;
+
+		// A x-z plane at y = g_groundY of dimension [-g_groundSize, g_groundSize]^2
+		float GrndPos[] = {
+			-g_groundSize, g_groundY, -g_groundSize,
+			-g_groundSize, g_groundY, g_groundSize,
+			g_groundSize, g_groundY, g_groundSize,
+			g_groundSize, g_groundY, -g_groundSize};
+
+		float GrndNorm[] = {
+			0, 1, 0,
+			0, 1, 0,
+			0, 1, 0,
+			0, 1, 0,
+			0, 1, 0,
+			0, 1, 0};
+
+		static GLfloat GrndTex[] = {
+			0, 0, // back
+			0, 100,
+			100, 100,
+			100, 0};
+
+		unsigned short idx[] = {0, 1, 2, 0, 2, 3};
+
+		//generate the ground VAO
+		glGenVertexArrays(1, &GroundVertexArrayID);
+		glBindVertexArray(GroundVertexArrayID);
+
+		g_GiboLen = 6;
+		glGenBuffers(1, &GrndBuffObj);
+		glBindBuffer(GL_ARRAY_BUFFER, GrndBuffObj);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(GrndPos), GrndPos, GL_STATIC_DRAW);
+
+		glGenBuffers(1, &GrndNorBuffObj);
+		glBindBuffer(GL_ARRAY_BUFFER, GrndNorBuffObj);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(GrndNorm), GrndNorm, GL_STATIC_DRAW);
+
+		glGenBuffers(1, &GrndTexBuffObj);
+		glBindBuffer(GL_ARRAY_BUFFER, GrndTexBuffObj);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(GrndTex), GrndTex, GL_STATIC_DRAW);
+
+		glGenBuffers(1, &GIndxBuffObj);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, GIndxBuffObj);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(idx), idx, GL_STATIC_DRAW);
+	}
+
+	//code to draw the ground plane
+	void drawGround(shared_ptr<Program> curS)
+	{
+		curS->bind();
+		glBindVertexArray(GroundVertexArrayID);
+		SetMaterial(curS, 1);
+		//draw the ground plane
+		SetModel(vec3(0, -1, 0), 0, 0, 1, curS);
+		glEnableVertexAttribArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, GrndBuffObj);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+		glEnableVertexAttribArray(1);
+		glBindBuffer(GL_ARRAY_BUFFER, GrndNorBuffObj);
+		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+		glEnableVertexAttribArray(2);
+		glBindBuffer(GL_ARRAY_BUFFER, GrndTexBuffObj);
+		glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 0, 0);
+
+		// draw!
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, GIndxBuffObj);
+		glDrawElements(GL_TRIANGLES, g_GiboLen, GL_UNSIGNED_SHORT, 0);
+
+		glDisableVertexAttribArray(0);
+		glDisableVertexAttribArray(1);
+		glDisableVertexAttribArray(2);
+		curS->unbind();
+	}
+
+	// =======================================================================
+	// DRAW FUNCTIONS
+	// =======================================================================
+
+	void drawTrees(shared_ptr<MatrixStack> Model)
+	{
+		for (int i = 0; i < howManyTrees; i++)
+		{
+			Model->pushMatrix();
+			Model->loadIdentity();
+			Model->rotate(radians(treeRotations[i]), vec3(0, 1, 0));
+			Model->translate(vec3(treePositions[i].x, treePositions[i].y + 0.25, treePositions[i].z));
+
+			//draw the torso with these transforms
+			Model->pushMatrix();
+			Model->scale(vec3(5.0, 5.0, 5.0));
+			setModel(prog, Model);
+			for (int i = 0; i < tree.size(); i++)
+			{
+				if (i == 2 || i == 1)
+					continue;
+				tree[i]->draw(prog);
+			}
+
+			Model->popMatrix();
+
+			Model->popMatrix();
+		}
+	}
+
+	// =======================================================================
+	// HELPERS: MATERIALS & TRANSFORMATIONS
+	// =======================================================================
+
+	/* helper functions for sending matrix data to the GPU */
+	mat4 SetProjectionMatrix(shared_ptr<Program> curShade)
+	{
+		int width, height;
+		glfwGetFramebufferSize(windowManager->getHandle(), &width, &height);
+		float aspect = width / (float)height;
+		mat4 Projection = perspective(radians(50.0f), aspect, 0.1f, 100.0f);
+		glUniformMatrix4fv(curShade->getUniform("P"), 1, GL_FALSE, value_ptr(Projection));
+		return Projection;
+	}
+
+	// TODO: Figure out whether we can get rid of the dueling SetModel functions.
+
+	void SetModel(shared_ptr<Program> curS, mat4 m)
+	{
+		glUniformMatrix4fv(curS->getUniform("M"), 1, GL_FALSE, value_ptr(m));
+	}
+
+	/* helper function to set model trasnforms */
+	void SetModel(vec3 trans, float rotY, float rotX, float sc, shared_ptr<Program> curS)
+	{
+		mat4 Trans = glm::translate(glm::mat4(1.0f), trans);
+		mat4 RotX = glm::rotate(glm::mat4(1.0f), rotX, vec3(1, 0, 0));
+		mat4 RotY = glm::rotate(glm::mat4(1.0f), rotY, vec3(0, 1, 0));
+		mat4 ScaleS = glm::scale(glm::mat4(1.0f), vec3(sc));
+		mat4 ctm = Trans * RotX * RotY * ScaleS;
+		glUniformMatrix4fv(curS->getUniform("M"), 1, GL_FALSE, value_ptr(ctm));
+	}
+
+	void setModel(std::shared_ptr<Program> prog, std::shared_ptr<MatrixStack> M)
+	{
+		glUniformMatrix4fv(prog->getUniform("M"), 1, GL_FALSE, value_ptr(M->topMatrix()));
+	}
+
+	/*normal game camera */
+	// void SetView(shared_ptr<Program> shader)
+	// {
+	// 	mat4 Cam = lookAt(g_eye, g_lookAt, vec3(0, 1, 0));
+
+	// 	glUniformMatrix4fv(shader->getUniform("V"), 1, GL_FALSE, value_ptr(Cam));
+	// }
+
+	/*normal game camera */
+	mat4 SetView(shared_ptr<Program> curShade)
+	{
+		mat4 Cam = lookAt(g_eye, g_lookAt, vec3(0, 1, 0));
+		glUniformMatrix4fv(curShade->getUniform("V"), 1, GL_FALSE, value_ptr(Cam));
+		return Cam;
+	}
+
+	// helper function to set materials for shading
+	void SetMaterial(shared_ptr<Program> curS, int i)
+	{
+		switch (i)
+		{
+		case 0: //shiny blue plastic
+			glUniform3f(curS->getUniform("MatAmb"), 0.02f, 0.04f, 0.2f);
+			glUniform3f(curS->getUniform("MatDif"), 0.0f, 0.16f, 0.9f);
+			break;
+		case 1: // flat grey
+			glUniform3f(curS->getUniform("MatAmb"), 0.13f, 0.13f, 0.14f);
+			glUniform3f(curS->getUniform("MatDif"), 0.3f, 0.3f, 0.4f);
+			break;
+		case 2: //brass
+			glUniform3f(curS->getUniform("MatAmb"), 0.3294f, 0.2235f, 0.02745f);
+			glUniform3f(curS->getUniform("MatDif"), 0.7804f, 0.5686f, 0.11373f);
+			break;
+		case 3: //copper
+			glUniform3f(curS->getUniform("MatAmb"), 0.1913f, 0.0735f, 0.0225f);
+			glUniform3f(curS->getUniform("MatDif"), 0.7038f, 0.27048f, 0.0828f);
+			break;
+		}
+	}
+
+	// =======================================================================
+	// INTERACTIVITY: KEYBOARD AND MOUSE
+	// =======================================================================
+
+	void mouseCallback(GLFWwindow *window, int button, int action, int mods)
+	{
+		cout << "use two finger mouse scroll" << endl;
+	}
+
 	/* much of the camera is here */
 	void scrollCallback(GLFWwindow *window, double deltaX, double deltaY)
 	{
 		vec3 diff, newV;
 
-		g_theta += deltaX * 0.25;
-		g_phi += deltaY * 0.25;
+		g_theta += deltaX * 0.01;
+		g_phi += deltaY * 0.01;
+		g_phi = constrain((double)g_phi, -M_PI / 2.0 + M_PI / 4.0, M_PI / 2.0 - M_PI / 4.0);
+
 		newV.x = cosf(g_phi) * cosf(g_theta);
 		newV.y = -1.0 * sinf(g_phi);
 		newV.z = 1.0 * cosf(g_phi) * cosf((3.14 / 2.0 - g_theta));
@@ -462,30 +824,15 @@ public:
 		}
 	}
 
-	// helper function to set materials for shading
-	void SetMaterial(int i)
+	void resizeCallback(GLFWwindow *window, int width, int height)
 	{
-		switch (i)
-		{
-		case 0: //shiny blue plastic
-			glUniform3f(prog->getUniform("MatAmb"), 0.02f, 0.04f, 0.2f);
-			glUniform3f(prog->getUniform("MatDif"), 0.0f, 0.16f, 0.9f);
-			break;
-		case 1: // flat grey
-			glUniform3f(prog->getUniform("MatAmb"), 0.13f, 0.13f, 0.14f);
-			glUniform3f(prog->getUniform("MatDif"), 0.3f, 0.3f, 0.4f);
-			break;
-		case 2: //brass
-			glUniform3f(prog->getUniform("MatAmb"), 0.3294f, 0.2235f, 0.02745f);
-			glUniform3f(prog->getUniform("MatDif"), 0.7804f, 0.5686f, 0.11373f);
-			break;
-		case 3: //copper
-			glUniform3f(prog->getUniform("MatAmb"), 0.1913f, 0.0735f, 0.0225f);
-			glUniform3f(prog->getUniform("MatDif"), 0.7038f, 0.27048f, 0.0828f);
-			break;
-		}
+		glViewport(0, 0, width, height);
 	}
 };
+
+// =======================================================================
+// MAIN
+// =======================================================================
 
 int main(int argc, char **argv)
 {
@@ -503,7 +850,7 @@ int main(int argc, char **argv)
 	// and GL context, etc.
 
 	WindowManager *windowManager = new WindowManager();
-	windowManager->init(512, 512);
+	windowManager->init(1280, 720);
 	windowManager->setEventCallbacks(application);
 	application->windowManager = windowManager;
 
