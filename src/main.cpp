@@ -24,8 +24,7 @@ class Application : public EventCallbacks
 {
 
 public:
-
-	WindowManager * windowManager = nullptr;
+	WindowManager *windowManager = nullptr;
 
 	// Our shader program
 	std::shared_ptr<Program> prog;
@@ -66,12 +65,12 @@ public:
 
 	vec3 g_light = vec3(2, 6, 6);
 
-	void init(const std::string& resourceDirectory)
+	void init(const std::string &resourceDirectory)
 	{
 		GLSL::checkVersion();
 
 		g_phi = 0;
-		g_theta = -3.14/2.0;
+		g_theta = -3.14 / 2.0;
 
 		// Set background color.
 		//glClearColor(.12f, .34f, .56f, 1.0f);
@@ -85,7 +84,7 @@ public:
 		prog->setShaderNames(
 			resourceDirectory + "/simple_vert.glsl",
 			resourceDirectory + "/gbuf_frag.glsl");
-		if (! prog->init())
+		if (!prog->init())
 		{
 			std::cerr << "One or more shaders failed to compile... exiting!" << std::endl;
 			exit(1);
@@ -97,33 +96,37 @@ public:
 		prog->addUniform("MatDif");
 		prog->addAttribute("vertPos");
 		prog->addAttribute("vertNor");
-		
+
 		//set up the shaders to blur the FBO just a placeholder pass thru now
 		//next lab modify and possibly add other shaders to complete blur
 		texProg = make_shared<Program>();
 		texProg->setVerbose(true);
 		texProg->setShaderNames(
 			resourceDirectory + "/pass_vert.glsl",
-			resourceDirectory + "/tex_frag.glsl");
-		if (! texProg->init()) {
+			resourceDirectory + "/tex_frag_modified.glsl");
+		if (!texProg->init())
+		{
 			std::cerr << "One or more shaders failed to compile... exiting!" << std::endl;
 			exit(1);
 		}
 		texProg->addUniform("texBuf");
 		texProg->addAttribute("vertPos");
 		texProg->addUniform("Ldir");
+		texProg->addUniform("gPosition");
+		texProg->addUniform("gNormal");
+		texProg->addUniform("gColorSpec");
 
 		initBuffers();
-
 	}
-	
-	void initBuffers() {
+
+	void initBuffers()
+	{
 		int width, height;
 		glfwGetFramebufferSize(windowManager->getHandle(), &width, &height);
 
 		//initialize the buffers -- from learnopengl.com
 		glGenFramebuffers(1, &gBuffer);
-		glBindFramebuffer(GL_FRAMEBUFFER, gBuffer); 
+		glBindFramebuffer(GL_FRAMEBUFFER, gBuffer);
 
 		// - position color buffer
 		glGenTextures(1, &gPosition);
@@ -158,10 +161,10 @@ public:
 		//more FBO set up
 		GLenum DrawBuffers[3] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2};
 		glDrawBuffers(3, DrawBuffers);
-
 	}
 
-	void createFBO(GLuint& fb, GLuint& tex) {
+	void createFBO(GLuint &fb, GLuint &tex)
+	{
 		//initialize FBO
 		int width, height;
 		glfwGetFramebufferSize(windowManager->getHandle(), &width, &height);
@@ -186,7 +189,7 @@ public:
 		}
 	}
 
-	void initGeom(const std::string& resourceDirectory)
+	void initGeom(const std::string &resourceDirectory)
 	{
 		// Initialize the obj mesh VBOs etc
 		shape = make_shared<Shape>();
@@ -197,7 +200,6 @@ public:
 		//Initialize the geometry to render a quad to the screen
 		initQuad();
 	}
-	
 
 	void render()
 	{
@@ -206,20 +208,27 @@ public:
 		glfwGetFramebufferSize(windowManager->getHandle(), &width, &height);
 		glViewport(0, 0, width, height);
 
-		 //camera movement - made continuous while keypressed
+		//camera movement - made continuous while keypressed
 		float speed = 0.2;
-		if (MOVEL){
-			g_eye -= speed*strafe;
-			g_lookAt -= speed*strafe;
-		} else if (MOVER) {
-			g_eye += speed*strafe;
-			g_lookAt += speed*strafe;
-		} else if (MOVEF) {
-			g_eye -= speed*view;
-			g_lookAt -= speed*view;
-		} else if (MOVEB) {
-			g_eye += speed*view;
-			g_lookAt += speed*view;
+		if (MOVEL)
+		{
+			g_eye -= speed * strafe;
+			g_lookAt -= speed * strafe;
+		}
+		else if (MOVER)
+		{
+			g_eye += speed * strafe;
+			g_lookAt += speed * strafe;
+		}
+		else if (MOVEF)
+		{
+			g_eye -= speed * view;
+			g_lookAt -= speed * view;
+		}
+		else if (MOVEB)
+		{
+			g_eye += speed * view;
+			g_lookAt += speed * view;
 		}
 
 		if (Defer)
@@ -235,7 +244,7 @@ public:
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		/* Leave this code to just draw the meshes alone */
-		float aspect = width/(float)height;
+		float aspect = width / (float)height;
 
 		//Draw our scene - two meshes - right now to a texture
 		prog->bind();
@@ -244,9 +253,10 @@ public:
 		mat4 P = SetProjectionMatrix(prog);
 		mat4 V = SetView(prog);
 
- 		//draw a circle of Nefs
+		//draw a circle of Nefs
 		float tx, tz, theta = 0;
-		for (int i = 0; i < 10; i++) {
+		for (int i = 0; i < 10; i++)
+		{
 			tx = (4.f) * sin(theta);
 			tz = (4.f) * cos(theta);
 			/* draw left mesh */
@@ -255,7 +265,7 @@ public:
 			trans = translate(glm::mat4(1.0f), vec3(tx, 0.5f, tz));
 			r2 = rotate(glm::mat4(1.0f), 3.14f + theta, vec3(0, 1, 0));
 			r1 = rotate(glm::mat4(1.0f), -radians(90.0f), vec3(1, 0, 0));
-			SetModel(prog, trans*r2*r1);
+			SetModel(prog, trans * r2 * r1);
 			SetMaterial(i % 4);
 			shape->draw(prog);
 			theta += 6.28f / 10.f;
@@ -269,18 +279,26 @@ public:
 			glBindFramebuffer(GL_FRAMEBUFFER, 0);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-
 			// example applying of 'drawing' the FBO texture - change shaders
 			texProg->bind();
-				glActiveTexture(GL_TEXTURE0);
-				glBindTexture(GL_TEXTURE_2D, gPosition);
-				glUniform1i(texProg->getUniform("texBuf"), 0);
-				glUniform3f(texProg->getUniform("Ldir"), g_light.x, g_light.y, g_light.z);
-				glEnableVertexAttribArray(0);
-				glBindBuffer(GL_ARRAY_BUFFER, quad_vertexbuffer);
-				glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void *) 0);
-				glDrawArrays(GL_TRIANGLES, 0, 6);
-				glDisableVertexAttribArray(0);
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, gPosition);
+			glUniform1i(texProg->getUniform("texBuf"), 0); //
+			// Masood addition
+			glActiveTexture(GL_TEXTURE0 + 1);
+			glBindTexture(GL_TEXTURE_2D, gNormal);
+			glActiveTexture(GL_TEXTURE0 + 2);
+			glBindTexture(GL_TEXTURE_2D, gColorSpec);
+			glUniform1i(texProg->getUniform("gPosition"), 0);
+			glUniform1i(texProg->getUniform("gNormal"), 1);
+			glUniform1i(texProg->getUniform("gColorSpec"), 2);
+			// End Masood addition
+			glUniform3f(texProg->getUniform("Ldir"), g_light.x, g_light.y, g_light.z);
+			glEnableVertexAttribArray(0);
+			glBindBuffer(GL_ARRAY_BUFFER, quad_vertexbuffer);
+			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void *)0);
+			glDrawArrays(GL_TRIANGLES, 0, 6);
+			glDisableVertexAttribArray(0);
 			texProg->unbind();
 
 			/*code to write out the FBO (texture) just once -an example*/
@@ -298,7 +316,8 @@ public:
 	// To complete image processing on the specificed texture
 	// Right now just draws large quad to the screen that is texture mapped
 	// with the prior scene image - next lab we will process
-	void DrawQuad(GLuint inTex) {
+	void DrawQuad(GLuint inTex)
+	{
 
 		// example applying of 'drawing' the FBO texture - change shaders
 		texProg->bind();
@@ -308,35 +327,39 @@ public:
 		glUniform3f(texProg->getUniform("Ldir"), 1, -1, 0);
 		glEnableVertexAttribArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, quad_vertexbuffer);
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void *) 0);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void *)0);
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		glDisableVertexAttribArray(0);
 		texProg->unbind();
 	}
 
 	/* helper functions for sending matrix data to the GPU */
-	mat4 SetProjectionMatrix(shared_ptr<Program> curShade) {
+	mat4 SetProjectionMatrix(shared_ptr<Program> curShade)
+	{
 		int width, height;
 		glfwGetFramebufferSize(windowManager->getHandle(), &width, &height);
-		float aspect = width/(float)height;
+		float aspect = width / (float)height;
 		mat4 Projection = perspective(radians(50.0f), aspect, 0.1f, 100.0f);
 		glUniformMatrix4fv(curShade->getUniform("P"), 1, GL_FALSE, value_ptr(Projection));
 		return Projection;
 	}
- 	/* model transforms - normal */
-	void SetModel(shared_ptr<Program> curS, mat4 m) {
+	/* model transforms - normal */
+	void SetModel(shared_ptr<Program> curS, mat4 m)
+	{
 		glUniformMatrix4fv(curS->getUniform("M"), 1, GL_FALSE, value_ptr(m));
 	}
 
 	/*normal game camera */
-	mat4 SetView(shared_ptr<Program> curShade) {
+	mat4 SetView(shared_ptr<Program> curShade)
+	{
 		mat4 Cam = lookAt(g_eye, g_lookAt, vec3(0, 1, 0));
 		glUniformMatrix4fv(curShade->getUniform("V"), 1, GL_FALSE, value_ptr(Cam));
 		return Cam;
 	}
 
-	void mouseCallback(GLFWwindow *window, int button, int action, int mods) {
-    	cout << "use two finger mouse scroll" << endl;
+	void mouseCallback(GLFWwindow *window, int button, int action, int mods)
+	{
+		cout << "use two finger mouse scroll" << endl;
 	}
 
 	void resizeCallback(GLFWwindow *window, int width, int height)
@@ -345,20 +368,33 @@ public:
 	}
 
 	/**** geometry set up for a quad *****/
-	void initQuad() {
+	void initQuad()
+	{
 		//now set up a simple quad for rendering FBO
 		glGenVertexArrays(1, &quad_VertexArrayID);
 		glBindVertexArray(quad_VertexArrayID);
 
 		static const GLfloat g_quad_vertex_buffer_data[] =
-		{
-			-1.0f, -1.0f, 0.0f,
-			1.0f, -1.0f, 0.0f,
-			-1.0f,  1.0f, 0.0f,
-			-1.0f,  1.0f, 0.0f,
-			1.0f, -1.0f, 0.0f,
-			1.0f,  1.0f, 0.0f,
-		};
+			{
+				-1.0f,
+				-1.0f,
+				0.0f,
+				1.0f,
+				-1.0f,
+				0.0f,
+				-1.0f,
+				1.0f,
+				0.0f,
+				-1.0f,
+				1.0f,
+				0.0f,
+				1.0f,
+				-1.0f,
+				0.0f,
+				1.0f,
+				1.0f,
+				0.0f,
+			};
 
 		glGenBuffers(1, &quad_vertexbuffer);
 		glBindBuffer(GL_ARRAY_BUFFER, quad_vertexbuffer);
@@ -366,14 +402,15 @@ public:
 	}
 
 	/* much of the camera is here */
-	void scrollCallback(GLFWwindow* window, double deltaX, double deltaY) {
+	void scrollCallback(GLFWwindow *window, double deltaX, double deltaY)
+	{
 		vec3 diff, newV;
 
-		g_theta += deltaX*0.25;
-		g_phi += deltaY*0.25;
-		newV.x = cosf(g_phi)*cosf(g_theta);
-		newV.y = -1.0*sinf(g_phi);
-		newV.z = 1.0*cosf(g_phi)*cosf((3.14/2.0-g_theta));
+		g_theta += deltaX * 0.25;
+		g_phi += deltaY * 0.25;
+		newV.x = cosf(g_phi) * cosf(g_theta);
+		newV.y = -1.0 * sinf(g_phi);
+		newV.z = 1.0 * cosf(g_phi) * cosf((3.14 / 2.0 - g_theta));
 		diff.x = (g_lookAt.x - g_eye.x) - newV.x;
 		diff.y = (g_lookAt.y - g_eye.y) - newV.y;
 		diff.z = (g_lookAt.z - g_eye.z) - newV.z;
@@ -381,37 +418,46 @@ public:
 		g_lookAt.y = g_lookAt.y - diff.y;
 		g_lookAt.z = g_lookAt.z - diff.z;
 		view = g_eye - g_lookAt;
-		strafe = cross(vec3(0, 1,0), view);
+		strafe = cross(vec3(0, 1, 0), view);
 	}
 
-	void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+	void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
+	{
 
-		if (key == GLFW_KEY_A && action == GLFW_PRESS) {
+		if (key == GLFW_KEY_A && action == GLFW_PRESS)
+		{
 			MOVEL = true;
 		}
-		if (key == GLFW_KEY_D && action == GLFW_PRESS) {
+		if (key == GLFW_KEY_D && action == GLFW_PRESS)
+		{
 			MOVER = true;
 		}
-		if (key == GLFW_KEY_W && action == GLFW_PRESS) {
+		if (key == GLFW_KEY_W && action == GLFW_PRESS)
+		{
 			MOVEF = true;
 		}
-		if (key == GLFW_KEY_S && action == GLFW_PRESS) {
+		if (key == GLFW_KEY_S && action == GLFW_PRESS)
+		{
 			MOVEB = true;
 		}
 		if (key == GLFW_KEY_Q && action == GLFW_PRESS)
-			g_light.x += 0.5; 
+			g_light.x += 0.5;
 		if (key == GLFW_KEY_E && action == GLFW_PRESS)
-			g_light.x -= 0.5; 
-		if (key == GLFW_KEY_Z && action == GLFW_PRESS) {
-			glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
+			g_light.x -= 0.5;
+		if (key == GLFW_KEY_Z && action == GLFW_PRESS)
+		{
+			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 		}
-		if (key == GLFW_KEY_Z && action == GLFW_RELEASE) {
-			glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
+		if (key == GLFW_KEY_Z && action == GLFW_RELEASE)
+		{
+			glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 		}
-		if (key == GLFW_KEY_P && action == GLFW_PRESS) {
+		if (key == GLFW_KEY_P && action == GLFW_PRESS)
+		{
 			Defer = !Defer;
 		}
-		if (action == GLFW_RELEASE){
+		if (action == GLFW_RELEASE)
+		{
 			MOVER = MOVEF = MOVEB = MOVEL = false;
 		}
 	}
@@ -419,23 +465,24 @@ public:
 	// helper function to set materials for shading
 	void SetMaterial(int i)
 	{
-		switch (i) {
+		switch (i)
+		{
 		case 0: //shiny blue plastic
-		glUniform3f(prog->getUniform("MatAmb"), 0.02f, 0.04f, 0.2f);
-		glUniform3f(prog->getUniform("MatDif"), 0.0f, 0.16f, 0.9f);
-		break;
+			glUniform3f(prog->getUniform("MatAmb"), 0.02f, 0.04f, 0.2f);
+			glUniform3f(prog->getUniform("MatDif"), 0.0f, 0.16f, 0.9f);
+			break;
 		case 1: // flat grey
-		glUniform3f(prog->getUniform("MatAmb"), 0.13f, 0.13f, 0.14f);
-		glUniform3f(prog->getUniform("MatDif"), 0.3f, 0.3f, 0.4f);
-		break;
+			glUniform3f(prog->getUniform("MatAmb"), 0.13f, 0.13f, 0.14f);
+			glUniform3f(prog->getUniform("MatDif"), 0.3f, 0.3f, 0.4f);
+			break;
 		case 2: //brass
-		glUniform3f(prog->getUniform("MatAmb"), 0.3294f, 0.2235f, 0.02745f);
-		glUniform3f(prog->getUniform("MatDif"), 0.7804f, 0.5686f, 0.11373f);
-		break;
-		 case 3: //copper
-		 glUniform3f(prog->getUniform("MatAmb"), 0.1913f, 0.0735f, 0.0225f);
-		 glUniform3f(prog->getUniform("MatDif"), 0.7038f, 0.27048f, 0.0828f);
-		 break;
+			glUniform3f(prog->getUniform("MatAmb"), 0.3294f, 0.2235f, 0.02745f);
+			glUniform3f(prog->getUniform("MatDif"), 0.7804f, 0.5686f, 0.11373f);
+			break;
+		case 3: //copper
+			glUniform3f(prog->getUniform("MatAmb"), 0.1913f, 0.0735f, 0.0225f);
+			glUniform3f(prog->getUniform("MatDif"), 0.7038f, 0.27048f, 0.0828f);
+			break;
 		}
 	}
 };
@@ -467,14 +514,14 @@ int main(int argc, char **argv)
 	application->initGeom(resourceDir);
 
 	// Loop until the user closes the window.
-	while (! glfwWindowShouldClose(windowManager->getHandle()))
+	while (!glfwWindowShouldClose(windowManager->getHandle()))
 	{
-			// Render scene.
+		// Render scene.
 		application->render();
 
-			// Swap front and back buffers.
+		// Swap front and back buffers.
 		glfwSwapBuffers(windowManager->getHandle());
-			// Poll for and process events.
+		// Poll for and process events.
 		glfwPollEvents();
 	}
 
