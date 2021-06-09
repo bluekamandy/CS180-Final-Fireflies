@@ -9,6 +9,7 @@
  * */
 
 #include <iostream>
+#include <cmath>
 #include <glad/glad.h>
 
 #include "GLSL.h"
@@ -17,7 +18,10 @@
 #include "Shape.h"
 #include "WindowManager.h"
 #include "GLTextureWriter.h"
+#include "stb_image.h"
 #include "Texture.h"
+#include "Bezier.h"
+#include "Spline.h"
 
 #include "Common.hpp"
 
@@ -48,6 +52,7 @@ public:
 	vector<float> treeRotations;
 
 	int howManySpheres = 5000;
+	float distanceThreshold = 0.000025f;
 
 	// =======================================================================
 	// DATA: SHADER PROGRAMS AND SHAPES
@@ -56,11 +61,13 @@ public:
 	// Our shader program
 	std::shared_ptr<Program> prog;
 	std::shared_ptr<Program> texProg;
+	std::shared_ptr<Program> skyboxProg;
 
 	// Shape to be used (from obj file)
 	shared_ptr<Shape> nefertiti;
 	vector<shared_ptr<Shape>> tree;
 	shared_ptr<Shape> sphere;
+	shared_ptr<Shape> cube;
 
 	// =======================================================================
 	// DATA: TEXTURES (TO BE CONTINUED)
@@ -127,11 +134,27 @@ public:
 	vector<vec3> lightPositions;
 	vector<vec3> lightColors;
 
+	std::vector<Spline> fireflyPaths;
+
+	// =======================================================================
+	// DATA: SKYBOX
+	// =======================================================================
+
+	vector<std::string> faces{
+		"px_right.tga",
+		"nx_left.tga",
+		"py_top.tga",
+		"ny_bottom.tga",
+		"pz_front.tga",
+		"nz_back.tga"};
+
+	unsigned int cubeMapTexture;
+
 	// =======================================================================
 	// RENDER LOOP
 	// =======================================================================
 
-	void render()
+	void render(float frametime)
 	{
 		// Get current frame buffer size.
 		int width, height;
@@ -178,6 +201,10 @@ public:
 		Projection->pushMatrix();
 		Projection->perspective(45.0f, aspect, 0.01f, 100.0f);
 
+		/*
+		*  GEOMETRY
+		*/
+
 		//Draw our scene - two meshes - right now to a texture
 		prog->bind();
 
@@ -213,6 +240,7 @@ public:
 		drawTrees(Model);
 
 		drawSpheres(Model);
+		updateFireflyPositionsUsingPaths(frametime);
 
 		// Ground
 		textureGround->bind(prog->getUniform("texture0"));
@@ -224,12 +252,15 @@ public:
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		// example applying of 'drawing' the FBO texture - change shaders
+		/*
+		*  LIGHTING
+		*/
+
 		texProg->bind();
 		// FIXME: Next 3 lines may be unnecessary if we're just using deferred.
-		// glActiveTexture(GL_TEXTURE0);
-		// glBindTexture(GL_TEXTURE_2D, gPosition);
-		// glUniform1i(texProg->getUniform("texBuf"), 0); //
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, gPosition);
+		glUniform1i(texProg->getUniform("texBuf"), 0); //
 		// Masood addition
 		glActiveTexture(GL_TEXTURE0 + 1);
 		glBindTexture(GL_TEXTURE_2D, gNormal);
@@ -255,8 +286,49 @@ public:
 			assert(GLTextureWriter::WriteImage(gPosition, "gPos.png"));
 			assert(GLTextureWriter::WriteImage(gNormal, "gNorm.png"));
 			assert(GLTextureWriter::WriteImage(gColorSpec, "gColorSpec.png"));
+			assert(GLTextureWriter::WriteImage(depthBuf, "depthBuf.png"));
 			FirstTime = false;
 		}
+
+		/*
+		*  SKYBOX
+		*/
+
+		//to draw the sky box bind the right shader
+		skyboxProg->bind();
+
+		// glActiveTexture(GL_TEXTURE0 + 1);
+		// glBindTexture(GL_TEXTURE_2D, gNormal);
+		// glActiveTexture(GL_TEXTURE0 + 2);
+		// glBindTexture(GL_TEXTURE_2D, gColorSpec);
+		// glUniform1i(texProg->getUniform("gPosition"), 0);
+		// glUniform1i(texProg->getUniform("gNormal"), 1);
+		// glUniform1i(texProg->getUniform("gColorSpec"), 2);
+
+		//set the projection matrix - can use the same one
+		glUniformMatrix4fv(skyboxProg->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
+
+		//set the depth function to always draw the box!
+		glDepthFunc(GL_LEQUAL);
+
+		SetView(skyboxProg);
+
+		//set and send model transforms - likely want a bigger cube
+		glUniformMatrix4fv(skyboxProg->getUniform("M"), 1, GL_FALSE, value_ptr(Model->topMatrix()));
+
+		//bind the cube map texture
+		glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
+
+		//draw the actual cube
+		//cube->draw(skyboxProg);
+
+		drawSkycube(Model);
+
+		//set the depth test back to normal!
+		glDepthFunc(GL_LESS);
+
+		//unbind the shader for the skybox
+		skyboxProg->unbind();
 
 		// Pop matrix stacks.
 		Projection->popMatrix();
@@ -277,6 +349,21 @@ public:
 		glClearColor(0, 0, 0, 1.0f);
 		// Enable z-buffer test.
 		glEnable(GL_DEPTH_TEST);
+
+		/*
+		*  SKYBOX PROGRAM
+		*/
+
+		skyboxProg = make_shared<Program>();
+		skyboxProg->setVerbose(false);
+		skyboxProg->setShaderNames(
+			resourceDirectory + "/simple_vert.glsl",
+			resourceDirectory + "/tex_frag_skybox.glsl");
+		skyboxProg->init();
+		skyboxProg->addUniform("P");
+		skyboxProg->addUniform("V");
+		skyboxProg->addUniform("M");
+		skyboxProg->addAttribute("vertPos");
 
 		/*
 		*  GEOMETRY PASS: THIS DRAWS ALL THE GEOMETRY AND SETS UP THE GBUFFERS
@@ -392,10 +479,14 @@ public:
 		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, width, height);
 		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthBuf);
 
+		// CREATE ANOTHER BUFFER JUST FOR THE SHAPE OF THE LIGHT
+
 		//more FBO set up
 		GLenum DrawBuffers[3] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2};
 		glDrawBuffers(3, DrawBuffers);
 	}
+
+	// NOTE: This is never run. It must be for the framebuffer activity.
 
 	void createFBO(GLuint &fb, GLuint &tex)
 	{
@@ -430,6 +521,23 @@ public:
 	void initGeom(const std::string &resourceDirectory)
 	{
 		string errStr;
+		// Initialize cube mesh.
+		vector<tinyobj::shape_t> cubeShapes;
+		vector<tinyobj::material_t> cubeMaterials;
+		//load in the mesh and make the shape(s)
+		bool rc = tinyobj::LoadObj(cubeShapes, cubeMaterials, errStr, (resourceDirectory + "/cube.obj").c_str());
+		if (!rc)
+		{
+			cerr << errStr << endl;
+		}
+		else
+		{
+			normalizeGeometry(cubeShapes);
+			cube = make_shared<Shape>();
+			cube->createShape(cubeShapes[0]);
+			cube->measure();
+			cube->init();
+		}
 
 		/*
 		* TREE MESH
@@ -438,7 +546,7 @@ public:
 		vector<tinyobj::shape_t> treeShapes;
 		vector<tinyobj::material_t> treeMaterials;
 		//load in the mesh and make the shape(s)
-		bool rc = tinyobj::LoadObj(treeShapes, treeMaterials, errStr, (resourceDirectory + "/broadleaf_hero_field/OBJ format/broadleaf_hero_field.obj").c_str());
+		rc = tinyobj::LoadObj(treeShapes, treeMaterials, errStr, (resourceDirectory + "/broadleaf_hero_field/OBJ format/broadleaf_hero_field.obj").c_str());
 		if (!rc)
 		{
 			cerr << errStr << endl;
@@ -523,7 +631,6 @@ public:
 		{
 			// Every time we create a sphere these are created.
 			bool tooClose = false;
-			float distanceThreshold = 0.000025f;
 
 			float x, y, z;
 
@@ -546,12 +653,41 @@ public:
 
 			} while (tooClose == true);
 
-			// LOG("Created position at " << glm::to_string(vec3(x, y, x)));
-
 			lightPositions.push_back(glm::vec3(x, y, z));
 			lightColors.push_back(glm::vec3(randFloat(0.0, 1.0), randFloat(0.0, 1.0), randFloat(0.0, 1.0)));
 		}
-		//Initialize the geometry to render a quad to the screen
+
+		// CREATE SPHERE SPLINE PATHS
+		for (int i = 0; i < howManySpheres; i++)
+		{
+			// init splines up and down
+			// Each firefly will have 4 positions. The first and last will be the same. The two middle ones will be random.
+			// Create 4 offsets
+			std::vector<float> randomOffset;
+
+			float LO = -0.5f;
+			float HI = 0.5f;
+
+			for (int j = 0; j < 6; j++)
+			{
+				float r = LO + static_cast<float>(rand()) / (static_cast<float>(RAND_MAX / (HI - LO)));
+				randomOffset.push_back(r);
+			}
+
+			fireflyPaths.push_back(
+				Spline(
+					glm::vec3(lightPositions[i].x, lightPositions[i].y, lightPositions[i].z),
+					glm::vec3(lightPositions[i].x + randomOffset[0], lightPositions[i].y + randomOffset[1], lightPositions[i].z + randomOffset[2]),
+					glm::vec3(lightPositions[i].x + randomOffset[3], lightPositions[i].y + randomOffset[4], lightPositions[i].z + randomOffset[5]),
+					glm::vec3(lightPositions[i].x, lightPositions[i].y, lightPositions[i].z),
+					5,
+					true));
+		}
+
+		// create skybox
+		cubeMapTexture = createSky(resourceDirectory + "/night/", faces);
+
+		// Initialize the geometry to render a quad to the screen
 		initQuad();
 		initGround();
 	}
@@ -634,6 +770,51 @@ public:
 				shapes[i].mesh.positions[3 * v + 2] /= greatest; // normalize z
 			}
 		}
+	}
+
+	// =======================================================================
+	// SKYBOX
+	// =======================================================================
+
+	unsigned int createSky(string dir, vector<string> faces)
+	{
+		unsigned int textureID;
+		glGenTextures(1, &textureID);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
+		int width, height, nrChannels;
+		stbi_set_flip_vertically_on_load(false);
+		for (GLuint i = 0; i < faces.size(); i++)
+		{
+			unsigned char *data =
+				stbi_load((dir + faces[i]).c_str(), &width, &height, &nrChannels, 0);
+			if (data)
+			{
+				glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
+							 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+			}
+			else
+			{
+				cout << "failed to load: " << (dir + faces[i]).c_str() << endl;
+			}
+		}
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+		cout << " creating cube map any errors : " << glGetError() << endl;
+		return textureID;
+	}
+
+	void drawSkycube(shared_ptr<MatrixStack> Model)
+	{
+		Model->pushMatrix();
+		Model->loadIdentity();
+		Model->translate(vec3(0.0, -5.0, 0.0));
+		Model->scale(vec3(20.0, 20.0, 20.0));
+		setModel(skyboxProg, Model);
+		cube->draw(skyboxProg);
+		Model->popMatrix();
 	}
 
 	// =======================================================================
@@ -722,7 +903,7 @@ public:
 	}
 
 	// =======================================================================
-	// DRAW FUNCTIONS
+	// MESH DRAW FUNCTIONS
 	// =======================================================================
 
 	/*
@@ -781,6 +962,28 @@ public:
 			Model->popMatrix();
 
 			Model->popMatrix();
+		}
+	}
+
+	// =======================================================================
+	// ANIMATION FUNCTIONS
+	// =======================================================================
+
+	void updateFireflyPositionsUsingPaths(float frametime)
+	{
+
+		for (int i = 0; i < fireflyPaths.size(); i++)
+		{
+			fireflyPaths[i].update(frametime);
+		}
+
+		for (int i = 0; i < howManySpheres; i++)
+		{
+			lightPositions[i] = fireflyPaths[i].getPosition();
+			if (fireflyPaths[i].isDone())
+			{
+				fireflyPaths[i].update(frametime);
+			}
 		}
 	}
 
@@ -976,11 +1179,28 @@ int main(int argc, char **argv)
 	application->init(resourceDir);
 	application->initGeom(resourceDir);
 
+	auto lastTime = chrono::high_resolution_clock::now();
+
 	// Loop until the user closes the window.
 	while (!glfwWindowShouldClose(windowManager->getHandle()))
 	{
+		// save current time for next frame
+		auto nextLastTime = chrono::high_resolution_clock::now();
+
+		// get time since last frame
+		float deltaTime =
+			chrono::duration_cast<std::chrono::microseconds>(
+				chrono::high_resolution_clock::now() - lastTime)
+				.count();
+		// convert microseconds (weird) to seconds (less weird)
+		deltaTime *= 0.000001;
+
+		// reset lastTime so that we can calculate the deltaTime
+		// on the next frame
+		lastTime = nextLastTime;
+
 		// Render scene.
-		application->render();
+		application->render(deltaTime);
 
 		// Swap front and back buffers.
 		glfwSwapBuffers(windowManager->getHandle());

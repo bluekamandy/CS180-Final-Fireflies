@@ -6,7 +6,6 @@
 
 #include "GLSL.h"
 
-
 std::string readFileAsString(const std::string &fileName)
 {
 	std::string result;
@@ -15,7 +14,7 @@ std::string readFileAsString(const std::string &fileName)
 	if (fileHandle.is_open())
 	{
 		fileHandle.seekg(0, std::ios::end);
-		result.reserve((size_t) fileHandle.tellg());
+		result.reserve((size_t)fileHandle.tellg());
 		fileHandle.seekg(0, std::ios::beg);
 
 		result.assign((std::istreambuf_iterator<char>(fileHandle)), std::istreambuf_iterator<char>());
