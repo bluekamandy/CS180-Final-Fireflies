@@ -1198,6 +1198,8 @@ int main(int argc, char **argv)
 	windowManager->setEventCallbacks(application);
 	application->windowManager = windowManager;
 
+	glfwSetInputMode(windowManager->getHandle(), GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
+
 	// This is the code that will likely change program to program as you
 	// may need to initialize or set up different data and state
 
