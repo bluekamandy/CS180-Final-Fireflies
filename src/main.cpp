@@ -583,28 +583,6 @@ public:
 		}
 
 		/*
-		* NEFERTITI MESH
-		*/
-
-		vector<tinyobj::shape_t>
-			nefertitiShapes;
-		vector<tinyobj::material_t> nefertitiMaterials;
-		//load in the mesh and make the shape(s)
-		rc = tinyobj::LoadObj(nefertitiShapes, nefertitiMaterials, errStr, (resourceDirectory + "/Nefertiti-100K.obj").c_str());
-		if (!rc)
-		{
-			cerr << errStr << endl;
-		}
-		else
-		{
-			normalizeGeometry(nefertitiShapes);
-			nefertiti = make_shared<Shape>();
-			nefertiti->createShape(nefertitiShapes[0]);
-			nefertiti->measure();
-			nefertiti->init();
-		}
-
-		/*
 		* SPHERE MESH
 		*/
 
