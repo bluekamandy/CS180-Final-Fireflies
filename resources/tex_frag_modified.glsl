@@ -12,16 +12,17 @@ uniform sampler2D gPosition;
 uniform sampler2D gNormal;
 uniform sampler2D gColorSpec;
 
-// struct Light {
-//     vec3 Position;
-//     vec3 Color;
+struct Light {
+    vec3 Position;
+    vec3 Color;
     
-//     float Linear;
-//     float Quadratic;
-// };
+    float Linear;
+    float Quadratic;
+};
 
-// const int NR_LIGHTS = 32;
-// uniform Light lights[NR_LIGHTS];
+const int NR_LIGHTS = 32;
+uniform Light lights[NR_LIGHTS];
+
 uniform vec3 viewPos; // EPos from our labs.
 
 /* just pass through the texture color we will add to this next lab */
@@ -60,19 +61,20 @@ void main(){
    // FIRST WE DO IT WITH A SINGLE LIGHT
 
    vec3 lightDir = normalize(Ldir - FragPos);
-   vec3 diffuse = max(dot(Normal, lightDir), 0.0) * Diffuse * vec3(1.0,1.0,1.0); // replaced color with 1.0
+   // vec3 diffuse = max(dot(Normal, lightDir), 0.0) * Diffuse * vec3(1.0); // replaced color with 1.0
+   vec3 diffuse = max(dot(Normal, lightDir), 0.0) * Diffuse; 
 
    // specular
    vec3 halfwayDir = normalize(lightDir + viewDir);  
    float spec = pow(max(dot(Normal, halfwayDir), 0.0), 16.0);
-   vec3 specular = vec3(0.0,0.0,0.0) * spec * Specular; // replaced color with 1.0
+   // vec3 specular = vec3(0.0,0.0,0.0) * spec * Specular; // replaced color with 1.0
 
    // attenuation NO ATTENUATION FOR NOW
 //    float distance = length(Ldir - FragPos);
 //    float attenuation = 1.0 / (1.0 + light.Linear * distance + light.Quadratic * distance * distance);
 //    diffuse *= attenuation;
 //    specular *= attenuation;
-   lighting += diffuse + specular;        
+   lighting += diffuse;        
 
    // color = vec4(texColor.rgb + lighting, 1.0);
    color = vec4(lighting, 1.0);

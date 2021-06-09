@@ -47,11 +47,11 @@ public:
 	// DATA: GLOBAL SCENE PROPERTIES
 	// =======================================================================
 
-	int howManyTrees = 500;
+	int howManyTrees = 50;
 	vector<glm::vec3> treePositions;
 	vector<float> treeRotations;
 
-	int howManySpheres = 5000;
+	int howManySpheres = 500;
 	float distanceThreshold = 0.000025f;
 
 	// =======================================================================
@@ -59,12 +59,11 @@ public:
 	// =======================================================================
 
 	// Our shader program
-	std::shared_ptr<Program> prog;
-	std::shared_ptr<Program> texProg;
-	std::shared_ptr<Program> skyboxProg;
+	std::shared_ptr<Program> shaderGeometryPass;
+	std::shared_ptr<Program> shaderLightingPass;
+	std::shared_ptr<Program> shaderSkybox;
 
 	// Shape to be used (from obj file)
-	shared_ptr<Shape> nefertiti;
 	vector<shared_ptr<Shape>> tree;
 	shared_ptr<Shape> sphere;
 	shared_ptr<Shape> cube;
@@ -206,15 +205,15 @@ public:
 		*/
 
 		//Draw our scene - two meshes - right now to a texture
-		prog->bind();
+		shaderGeometryPass->bind();
 
 		// Apply perspective projection. OLD
 		// mat4 P = SetProjectionMatrix(prog);
 		// mat4 V = SetView(prog);
 
 		// Create the matrices
-		glUniformMatrix4fv(prog->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
-		SetView(prog);
+		glUniformMatrix4fv(shaderGeometryPass->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
+		SetView(shaderGeometryPass);
 
 		//draw a circle of Nefs
 		// float tx, tz, theta = 0;
@@ -228,25 +227,25 @@ public:
 		// 	trans = translate(mat4(1.0f), vec3(tx, 0.5f, tz));
 		// 	r2 = rotate(mat4(1.0f), 3.14f + theta, vec3(0, 1, 0));
 		// 	r1 = rotate(mat4(1.0f), -radians(90.0f), vec3(1, 0, 0));
-		// 	SetModel(prog, trans * r2 * r1);
-		// 	SetMaterial(prog, i % 4);
-		// 	nefertiti->draw(prog);
+		// 	SetModel(shaderGeometryPass, trans * r2 * r1);
+		// 	SetMaterial(shaderGeometryPass, i % 4);
+		// 	nefertiti->draw(shaderGeometryPass);
 		// 	theta += 6.28f / 10.f;
 		// }
 
 		// Trees
 		// Grayish Brown: [Red:0.394 green:0.317 blue:0.250 alpha:1.0]
-		SetMaterialColor(prog, vec3(0.394, 0.317, 0.250));
+		SetMaterialColor(shaderGeometryPass, vec3(0.394, 0.317, 0.250));
 		drawTrees(Model);
 
 		drawSpheres(Model);
 		updateFireflyPositionsUsingPaths(frametime);
 
 		// Ground
-		textureGround->bind(prog->getUniform("texture0"));
-		drawGround(prog);
+		textureGround->bind(shaderGeometryPass->getUniform("texture0"));
+		drawGround(shaderGeometryPass);
 
-		prog->unbind();
+		shaderGeometryPass->unbind();
 
 		/* now draw the actual output */
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -256,28 +255,28 @@ public:
 		*  LIGHTING
 		*/
 
-		texProg->bind();
+		shaderLightingPass->bind();
 		// FIXME: Next 3 lines may be unnecessary if we're just using deferred.
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, gPosition);
-		glUniform1i(texProg->getUniform("texBuf"), 0); //
+		glUniform1i(shaderLightingPass->getUniform("texBuf"), 0); //
 		// Masood addition
 		glActiveTexture(GL_TEXTURE0 + 1);
 		glBindTexture(GL_TEXTURE_2D, gNormal);
 		glActiveTexture(GL_TEXTURE0 + 2);
 		glBindTexture(GL_TEXTURE_2D, gColorSpec);
-		glUniform1i(texProg->getUniform("gPosition"), 0);
-		glUniform1i(texProg->getUniform("gNormal"), 1);
-		glUniform1i(texProg->getUniform("gColorSpec"), 2);
+		glUniform1i(shaderLightingPass->getUniform("gPosition"), 0);
+		glUniform1i(shaderLightingPass->getUniform("gNormal"), 1);
+		glUniform1i(shaderLightingPass->getUniform("gColorSpec"), 2);
 		// End Masood addition
-		glUniform3f(texProg->getUniform("Ldir"), g_light.x, g_light.y, g_light.z);
+		glUniform3f(shaderLightingPass->getUniform("Ldir"), g_light.x, g_light.y, g_light.z);
 		glEnableVertexAttribArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, quad_vertexbuffer);
 		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void *)0);
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		glDisableVertexAttribArray(0);
 
-		texProg->unbind();
+		shaderLightingPass->unbind();
 
 		/*code to write out the FBO (texture) just once -an example*/
 		if (FirstTime)
@@ -295,7 +294,7 @@ public:
 		*/
 
 		//to draw the sky box bind the right shader
-		skyboxProg->bind();
+		shaderSkybox->bind();
 
 		// glActiveTexture(GL_TEXTURE0 + 1);
 		// glBindTexture(GL_TEXTURE_2D, gNormal);
@@ -306,21 +305,21 @@ public:
 		// glUniform1i(texProg->getUniform("gColorSpec"), 2);
 
 		//set the projection matrix - can use the same one
-		glUniformMatrix4fv(skyboxProg->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
+		glUniformMatrix4fv(shaderSkybox->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
 
 		//set the depth function to always draw the box!
 		glDepthFunc(GL_LEQUAL);
 
-		SetView(skyboxProg);
+		SetView(shaderSkybox);
 
 		//set and send model transforms - likely want a bigger cube
-		glUniformMatrix4fv(skyboxProg->getUniform("M"), 1, GL_FALSE, value_ptr(Model->topMatrix()));
+		glUniformMatrix4fv(shaderSkybox->getUniform("M"), 1, GL_FALSE, value_ptr(Model->topMatrix()));
 
 		//bind the cube map texture
 		glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
 
 		//draw the actual cube
-		//cube->draw(skyboxProg);
+		//cube->draw(shaderSkybox);
 
 		drawSkycube(Model);
 
@@ -328,7 +327,7 @@ public:
 		glDepthFunc(GL_LESS);
 
 		//unbind the shader for the skybox
-		skyboxProg->unbind();
+		shaderSkybox->unbind();
 
 		// Pop matrix stacks.
 		Projection->popMatrix();
@@ -354,62 +353,62 @@ public:
 		*  SKYBOX PROGRAM
 		*/
 
-		skyboxProg = make_shared<Program>();
-		skyboxProg->setVerbose(false);
-		skyboxProg->setShaderNames(
+		shaderSkybox = make_shared<Program>();
+		shaderSkybox->setVerbose(false);
+		shaderSkybox->setShaderNames(
 			resourceDirectory + "/simple_vert.glsl",
 			resourceDirectory + "/tex_frag_skybox.glsl");
-		skyboxProg->init();
-		skyboxProg->addUniform("P");
-		skyboxProg->addUniform("V");
-		skyboxProg->addUniform("M");
-		skyboxProg->addAttribute("vertPos");
+		shaderSkybox->init();
+		shaderSkybox->addUniform("P");
+		shaderSkybox->addUniform("V");
+		shaderSkybox->addUniform("M");
+		shaderSkybox->addAttribute("vertPos");
 
 		/*
 		*  GEOMETRY PASS: THIS DRAWS ALL THE GEOMETRY AND SETS UP THE GBUFFERS
 		*/
 
-		prog = make_shared<Program>();
-		prog->setVerbose(false);
-		prog->setShaderNames(
+		shaderGeometryPass = make_shared<Program>();
+		shaderGeometryPass->setVerbose(false);
+		shaderGeometryPass->setShaderNames(
 			resourceDirectory + "/simple_vert.glsl",
 			resourceDirectory + "/gbuf_frag.glsl");
-		if (!prog->init())
+		if (!shaderGeometryPass->init())
 		{
 			std::cerr << "One or more shaders failed to compile... exiting!" << std::endl;
 			exit(1);
 		}
-		prog->addUniform("P");
-		prog->addUniform("V");
-		prog->addUniform("M");
-		prog->addUniform("texture0");
-		prog->addUniform("MatAmb");
-		prog->addUniform("MatDif");
-		prog->addAttribute("vertPos");
-		prog->addAttribute("vertNor");
+		shaderGeometryPass->addUniform("P");
+		shaderGeometryPass->addUniform("V");
+		shaderGeometryPass->addUniform("M");
+		shaderGeometryPass->addUniform("texture0");
+		shaderGeometryPass->addUniform("MatAmb");
+		shaderGeometryPass->addUniform("MatDif");
+		shaderGeometryPass->addAttribute("vertPos");
+		shaderGeometryPass->addAttribute("vertNor");
 
 		/*
 		*  LIGHTING PASS: THIS IS WHERE DEFERRED SHADING HAPPENS
 		*/
 
-		texProg = make_shared<Program>();
-		texProg->setVerbose(false);
-		texProg->setShaderNames(
+		shaderLightingPass = make_shared<Program>();
+		shaderLightingPass->setVerbose(false);
+		shaderLightingPass->setShaderNames(
 			resourceDirectory + "/pass_vert.glsl",
 			resourceDirectory + "/tex_frag_modified.glsl");
-		if (!texProg->init())
+		if (!shaderLightingPass->init())
 		{
 			std::cerr << "One or more shaders failed to compile... exiting!" << std::endl;
 			exit(1);
 		}
-		texProg->addAttribute("vertPos");
-		texProg->addAttribute("vertTex");
-		texProg->addUniform("Ldir");
-		texProg->addUniform("lightPositions");
-		texProg->addUniform("lightColors");
-		texProg->addUniform("gPosition");
-		texProg->addUniform("gNormal");
-		texProg->addUniform("gColorSpec");
+		shaderLightingPass->addAttribute("vertPos");
+		shaderLightingPass->addAttribute("vertTex");
+		shaderLightingPass->addUniform("Ldir");
+		shaderLightingPass->addUniform("lightPositions");
+		shaderLightingPass->addUniform("lightColors");
+		shaderLightingPass->addUniform("gPosition");
+		shaderLightingPass->addUniform("gNormal");
+		shaderLightingPass->addUniform("gColorSpec");
 
 		/*
 		*  LOAD TEXTURES
@@ -566,12 +565,12 @@ public:
 		// CREATE TREE POSITIONS
 		for (int i = 0; i < howManyTrees; i++)
 		{
-			float x_lo = -50.0f;
-			float x_hi = 50.0f;
+			float x_lo = -5.0f;
+			float x_hi = 5.0f;
 			float x = x_lo + static_cast<float>(rand()) / (static_cast<float>(RAND_MAX / (x_hi - x_lo)));
 
-			float z_lo = -50.0f;
-			float z_hi = 50.0f;
+			float z_lo = -5.0f;
+			float z_hi = 5.0f;
 			float z = z_lo + static_cast<float>(rand()) / (static_cast<float>(RAND_MAX / (z_hi - z_lo)));
 
 			treePositions.push_back(glm::vec3(x, -1.25, z));
@@ -637,9 +636,9 @@ public:
 			do
 			{
 				// Generate random floats.
-				x = randFloat(-50.0f, 50.0f);
+				x = randFloat(-5.0f, 5.0f);
 				y = randFloat(0.0f, 0.5f);
-				z = randFloat(-50.0f, 50.0f);
+				z = randFloat(-5.0f, 5.0f);
 
 				// Check that x,y,z are far enough away from already generated orb positions
 				for (int i = 0; i < lightPositions.size(); i++)
@@ -812,8 +811,8 @@ public:
 		Model->loadIdentity();
 		Model->translate(vec3(0.0, -5.0, 0.0));
 		Model->scale(vec3(20.0, 20.0, 20.0));
-		setModel(skyboxProg, Model);
-		cube->draw(skyboxProg);
+		setModel(shaderSkybox, Model);
+		cube->draw(shaderSkybox);
 		Model->popMatrix();
 	}
 
@@ -922,16 +921,16 @@ public:
 			//draw the torso with these transforms
 			Model->pushMatrix();
 			Model->scale(vec3(5.0, 5.0, 5.0));
-			setModel(prog, Model);
+			setModel(shaderGeometryPass, Model);
 			for (int i = 0; i < tree.size(); i++)
 			{
 				if (i == 2 || i == 1)
 					continue;
 				if (i == 0)
-					textureTreeShell->bind(prog->getUniform("Texture0"));
+					textureTreeShell->bind(shaderGeometryPass->getUniform("Texture0"));
 				if (i == 3)
-					textureTreeMain->bind(prog->getUniform("Texture0"));
-				tree[i]->draw(prog);
+					textureTreeMain->bind(shaderGeometryPass->getUniform("Texture0"));
+				tree[i]->draw(shaderGeometryPass);
 			}
 
 			Model->popMatrix();
@@ -955,10 +954,10 @@ public:
 			//draw the torso with these transforms
 			Model->pushMatrix();
 			Model->scale(vec3(0.025, 0.025, 0.025));
-			SetMaterialColor(prog, lightColors[i]);
+			SetMaterialColor(shaderGeometryPass, lightColors[i]);
 			// glUniformMatrix4fv(prog->getUniform("M"), 1, GL_FALSE, value_ptr(Model->topMatrix()));
-			setModel(prog, Model);
-			sphere->draw(prog);
+			setModel(shaderGeometryPass, Model);
+			sphere->draw(shaderGeometryPass);
 			Model->popMatrix();
 
 			Model->popMatrix();
