@@ -51,7 +51,7 @@ public:
 	vector<glm::vec3> treePositions;
 	vector<float> treeRotations;
 
-	int howManySpheres = 500;
+	int howManySpheres = 50;
 	float distanceThreshold = 0.000025f;
 
 	// =======================================================================
@@ -61,7 +61,7 @@ public:
 	// Our shader program
 	std::shared_ptr<Program> shaderGeometryPass;
 	std::shared_ptr<Program> shaderLightingPass;
-	std::shared_ptr<Program> shaderSkybox;
+	//std::shared_ptr<Program> shaderSkybox;
 
 	// Shape to be used (from obj file)
 	vector<shared_ptr<Shape>> tree;
@@ -139,15 +139,15 @@ public:
 	// DATA: SKYBOX
 	// =======================================================================
 
-	vector<std::string> faces{
-		"px_right.tga",
-		"nx_left.tga",
-		"py_top.tga",
-		"ny_bottom.tga",
-		"pz_front.tga",
-		"nz_back.tga"};
+	// vector<std::string> faces{
+	// 	"px_right.tga",
+	// 	"nx_left.tga",
+	// 	"py_top.tga",
+	// 	"ny_bottom.tga",
+	// 	"pz_front.tga",
+	// 	"nz_back.tga"};
 
-	unsigned int cubeMapTexture;
+	// unsigned int cubeMapTexture;
 
 	// =======================================================================
 	// RENDER LOOP
@@ -268,6 +268,14 @@ public:
 		glUniform1i(shaderLightingPass->getUniform("gPosition"), 0);
 		glUniform1i(shaderLightingPass->getUniform("gNormal"), 1);
 		glUniform1i(shaderLightingPass->getUniform("gColorSpec"), 2);
+		glUniform3fv(
+			shaderLightingPass->getUniform("lightPositions"),
+			lightPositions.size(),
+			reinterpret_cast<GLfloat *>(&lightPositions[0]));
+		glUniform3fv(
+			shaderLightingPass->getUniform("lightColors"),
+			lightColors.size(),
+			reinterpret_cast<GLfloat *>(&lightColors[0]));
 		// End Masood addition
 		glUniform3f(shaderLightingPass->getUniform("Ldir"), g_light.x, g_light.y, g_light.z);
 		glEnableVertexAttribArray(0);
@@ -293,41 +301,33 @@ public:
 		*  SKYBOX
 		*/
 
-		//to draw the sky box bind the right shader
-		shaderSkybox->bind();
+		// //to draw the sky box bind the right shader
+		// shaderSkybox->bind();
 
-		// glActiveTexture(GL_TEXTURE0 + 1);
-		// glBindTexture(GL_TEXTURE_2D, gNormal);
-		// glActiveTexture(GL_TEXTURE0 + 2);
-		// glBindTexture(GL_TEXTURE_2D, gColorSpec);
-		// glUniform1i(texProg->getUniform("gPosition"), 0);
-		// glUniform1i(texProg->getUniform("gNormal"), 1);
-		// glUniform1i(texProg->getUniform("gColorSpec"), 2);
+		// //set the projection matrix - can use the same one
+		// glUniformMatrix4fv(shaderSkybox->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
 
-		//set the projection matrix - can use the same one
-		glUniformMatrix4fv(shaderSkybox->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
+		// //set the depth function to always draw the box!
+		// glDepthFunc(GL_LEQUAL);
 
-		//set the depth function to always draw the box!
-		glDepthFunc(GL_LEQUAL);
+		// SetView(shaderSkybox);
 
-		SetView(shaderSkybox);
+		// //set and send model transforms - likely want a bigger cube
+		// glUniformMatrix4fv(shaderSkybox->getUniform("M"), 1, GL_FALSE, value_ptr(Model->topMatrix()));
 
-		//set and send model transforms - likely want a bigger cube
-		glUniformMatrix4fv(shaderSkybox->getUniform("M"), 1, GL_FALSE, value_ptr(Model->topMatrix()));
+		// //bind the cube map texture
+		// glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
 
-		//bind the cube map texture
-		glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
+		// //draw the actual cube
+		// //cube->draw(shaderSkybox);
 
-		//draw the actual cube
-		//cube->draw(shaderSkybox);
+		// drawSkycube(Model);
 
-		drawSkycube(Model);
+		// //set the depth test back to normal!
+		// glDepthFunc(GL_LESS);
 
-		//set the depth test back to normal!
-		glDepthFunc(GL_LESS);
-
-		//unbind the shader for the skybox
-		shaderSkybox->unbind();
+		// //unbind the shader for the skybox
+		// shaderSkybox->unbind();
 
 		// Pop matrix stacks.
 		Projection->popMatrix();
@@ -353,16 +353,16 @@ public:
 		*  SKYBOX PROGRAM
 		*/
 
-		shaderSkybox = make_shared<Program>();
-		shaderSkybox->setVerbose(false);
-		shaderSkybox->setShaderNames(
-			resourceDirectory + "/simple_vert.glsl",
-			resourceDirectory + "/tex_frag_skybox.glsl");
-		shaderSkybox->init();
-		shaderSkybox->addUniform("P");
-		shaderSkybox->addUniform("V");
-		shaderSkybox->addUniform("M");
-		shaderSkybox->addAttribute("vertPos");
+		// shaderSkybox = make_shared<Program>();
+		// shaderSkybox->setVerbose(false);
+		// shaderSkybox->setShaderNames(
+		// 	resourceDirectory + "/simple_vert.glsl",
+		// 	resourceDirectory + "/tex_frag_skybox.glsl");
+		// shaderSkybox->init();
+		// shaderSkybox->addUniform("P");
+		// shaderSkybox->addUniform("V");
+		// shaderSkybox->addUniform("M");
+		// shaderSkybox->addAttribute("vertPos");
 
 		/*
 		*  GEOMETRY PASS: THIS DRAWS ALL THE GEOMETRY AND SETS UP THE GBUFFERS
@@ -662,7 +662,7 @@ public:
 		}
 
 		// create skybox
-		cubeMapTexture = createSky(resourceDirectory + "/night/", faces);
+		// cubeMapTexture = createSky(resourceDirectory + "/night/", faces);
 
 		// Initialize the geometry to render a quad to the screen
 		initQuad();
@@ -753,46 +753,46 @@ public:
 	// SKYBOX
 	// =======================================================================
 
-	unsigned int createSky(string dir, vector<string> faces)
-	{
-		unsigned int textureID;
-		glGenTextures(1, &textureID);
-		glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
-		int width, height, nrChannels;
-		stbi_set_flip_vertically_on_load(false);
-		for (GLuint i = 0; i < faces.size(); i++)
-		{
-			unsigned char *data =
-				stbi_load((dir + faces[i]).c_str(), &width, &height, &nrChannels, 0);
-			if (data)
-			{
-				glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
-							 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
-			}
-			else
-			{
-				cout << "failed to load: " << (dir + faces[i]).c_str() << endl;
-			}
-		}
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-		cout << " creating cube map any errors : " << glGetError() << endl;
-		return textureID;
-	}
+	// unsigned int createSky(string dir, vector<string> faces)
+	// {
+	// 	unsigned int textureID;
+	// 	glGenTextures(1, &textureID);
+	// 	glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
+	// 	int width, height, nrChannels;
+	// 	stbi_set_flip_vertically_on_load(false);
+	// 	for (GLuint i = 0; i < faces.size(); i++)
+	// 	{
+	// 		unsigned char *data =
+	// 			stbi_load((dir + faces[i]).c_str(), &width, &height, &nrChannels, 0);
+	// 		if (data)
+	// 		{
+	// 			glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
+	// 						 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+	// 		}
+	// 		else
+	// 		{
+	// 			cout << "failed to load: " << (dir + faces[i]).c_str() << endl;
+	// 		}
+	// 	}
+	// 	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	// 	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	// 	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	// 	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	// 	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+	// 	cout << " creating cube map any errors : " << glGetError() << endl;
+	// 	return textureID;
+	// }
 
-	void drawSkycube(shared_ptr<MatrixStack> Model)
-	{
-		Model->pushMatrix();
-		Model->loadIdentity();
-		Model->translate(vec3(0.0, -5.0, 0.0));
-		Model->scale(vec3(20.0, 20.0, 20.0));
-		setModel(shaderSkybox, Model);
-		cube->draw(shaderSkybox);
-		Model->popMatrix();
-	}
+	// void drawSkycube(shared_ptr<MatrixStack> Model)
+	// {
+	// 	Model->pushMatrix();
+	// 	Model->loadIdentity();
+	// 	Model->translate(vec3(0.0, -5.0, 0.0));
+	// 	Model->scale(vec3(20.0, 20.0, 20.0));
+	// 	setModel(shaderSkybox, Model);
+	// 	cube->draw(shaderSkybox);
+	// 	Model->popMatrix();
+	// }
 
 	// =======================================================================
 	// GROUND PLANE
