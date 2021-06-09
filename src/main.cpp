@@ -32,6 +32,13 @@
 // value_ptr for glm
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/string_cast.hpp>
+
+#define LOG(msg) \
+	std::cout << msg << std::endl
+
+#define LOG_MATRIX(mat) \
+	std::cout << glm::to_string(mat) << std::endl;
 
 using namespace std;
 using namespace glm;
@@ -51,7 +58,7 @@ public:
 	vector<glm::vec3> treePositions;
 	vector<float> treeRotations;
 
-	int howManySpheres = 50;
+	int howManySpheres = 250;
 	float distanceThreshold = 0.000025f;
 
 	// =======================================================================
@@ -215,24 +222,6 @@ public:
 		glUniformMatrix4fv(shaderGeometryPass->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
 		SetView(shaderGeometryPass);
 
-		//draw a circle of Nefs
-		// float tx, tz, theta = 0;
-		// for (int i = 0; i < 10; i++)
-		// {
-		// 	tx = (4.f) * sin(theta);
-		// 	tz = (4.f) * cos(theta);
-		// 	/* draw left mesh */
-		// 	mat4 trans;
-		// 	mat4 r1, r2;
-		// 	trans = translate(mat4(1.0f), vec3(tx, 0.5f, tz));
-		// 	r2 = rotate(mat4(1.0f), 3.14f + theta, vec3(0, 1, 0));
-		// 	r1 = rotate(mat4(1.0f), -radians(90.0f), vec3(1, 0, 0));
-		// 	SetModel(shaderGeometryPass, trans * r2 * r1);
-		// 	SetMaterial(shaderGeometryPass, i % 4);
-		// 	nefertiti->draw(shaderGeometryPass);
-		// 	theta += 6.28f / 10.f;
-		// }
-
 		// Trees
 		// Grayish Brown: [Red:0.394 green:0.317 blue:0.250 alpha:1.0]
 		SetMaterialColor(shaderGeometryPass, vec3(0.394, 0.317, 0.250));
@@ -256,7 +245,7 @@ public:
 		*/
 
 		shaderLightingPass->bind();
-		// FIXME: Next 3 lines may be unnecessary if we're just using deferred.
+		SetView(shaderLightingPass);
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, gPosition);
 		glUniform1i(shaderLightingPass->getUniform("texBuf"), 0); //
@@ -276,8 +265,10 @@ public:
 			shaderLightingPass->getUniform("lightColors"),
 			lightColors.size(),
 			reinterpret_cast<GLfloat *>(&lightColors[0]));
+		// LOG_MATRIX(g_eye);
+		// When logging this to console, I realized that my position is being taken into account, but nowh
+		glUniform3fv(shaderLightingPass->getUniform("viewPos"), 1, glm::value_ptr(g_eye));
 		// End Masood addition
-		glUniform3f(shaderLightingPass->getUniform("Ldir"), g_light.x, g_light.y, g_light.z);
 		glEnableVertexAttribArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, quad_vertexbuffer);
 		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void *)0);
@@ -401,6 +392,9 @@ public:
 			std::cerr << "One or more shaders failed to compile... exiting!" << std::endl;
 			exit(1);
 		}
+		shaderLightingPass->addUniform("P");
+		shaderLightingPass->addUniform("V");
+		shaderLightingPass->addUniform("M");
 		shaderLightingPass->addAttribute("vertPos");
 		shaderLightingPass->addAttribute("vertTex");
 		shaderLightingPass->addUniform("Ldir");

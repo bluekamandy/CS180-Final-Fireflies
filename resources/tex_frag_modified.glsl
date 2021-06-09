@@ -12,12 +12,15 @@ uniform sampler2D gPosition;
 uniform sampler2D gNormal;
 uniform sampler2D gColorSpec;
 
-const int NR_LIGHTS = 50;
+const int NR_LIGHTS = 250;
 uniform vec3 lightPositions[NR_LIGHTS];
 uniform vec3 lightColors[NR_LIGHTS];
 
+// You could make this into an array if you wanted different strength lights.
+float linear = 4.0;
+float quadratic = 5.0;
 
-uniform vec3 viewPos; // EPos from our labs.
+uniform vec3 viewPos; // EPos from our labs. But here we set it as a uniform.
 
 /* just pass through the texture color we will add to this next lab */
 void main(){
@@ -45,10 +48,10 @@ void main(){
       float spec = pow(max(dot(Normal, halfwayDir), 0.0), 16.0);
       vec3 specular = lightColors[i] * spec * Specular;
       // attenuation  HOLD OFF ON ATTENUATION FOR NOW
-      // float distance = length(lights[i].Position - FragPos);
-      // float attenuation = 1.0 / (1.0 + lights[i].Linear * distance + lights[i].Quadratic * distance * distance);
-      // diffuse *= attenuation;
-      // specular *= attenuation;
+      float distance = length(lightPositions[i] - FragPos);
+      float attenuation = 1.0 / (1.0 + linear * distance + quadratic * distance * distance);
+      diffuse *= attenuation;
+      specular *= attenuation;
       lighting += diffuse + specular;        
    }
 
