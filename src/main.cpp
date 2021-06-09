@@ -169,7 +169,7 @@ public:
 		glViewport(0, 0, width, height);
 
 		//camera movement - made continuous while keypressed
-		float speed = 0.1;
+		float speed = 0.005;
 		if (MOVEL)
 		{
 			g_eye -= speed * strafe;
@@ -968,7 +968,7 @@ public:
 
 			//draw the torso with these transforms
 			Model->pushMatrix();
-			Model->scale(vec3(0.025, 0.025, 0.025));
+			Model->scale(vec3(0.05, 0.05, 0.05));
 			SetMaterialColor(shaderLightSphere, lightColors[i]);
 			// glUniformMatrix4fv(prog->getUniform("M"), 1, GL_FALSE, value_ptr(Model->topMatrix()));
 			setModel(shaderLightSphere, Model);
@@ -1183,7 +1183,7 @@ int main(int argc, char **argv)
 	// and GL context, etc.
 
 	WindowManager *windowManager = new WindowManager();
-	windowManager->init(1920, 1080);
+	windowManager->init(1280, 720);
 	windowManager->setEventCallbacks(application);
 	application->windowManager = windowManager;
 

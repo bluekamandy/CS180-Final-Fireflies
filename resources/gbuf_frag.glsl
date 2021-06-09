@@ -23,9 +23,9 @@ void main()
     gNormal = normalize(fragNor);
     // and the diffuse per-fragment color
     // NOTE: mixed in texColor.rgb because this seems to be the only place it makes sense to do that.
-    gAlbedoSpec.rgb = mix(MatDif, texColor.rgb, 0.5);
-    //gAlbedoSpec.rgb = MatDif;
+    // gAlbedoSpec.rgb = MatDif + texColor.rgb;
+    gAlbedoSpec.rgb = MatDif;
     // store specular intensity in gAlbedoSpec's alpha component
-	 //constant could be from a texture
+	//constant could be from a texture
     gAlbedoSpec.a = 0.5;
 } 
