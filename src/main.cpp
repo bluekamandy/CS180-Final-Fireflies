@@ -4,7 +4,7 @@
  * by MASOOD
  * 
  * Initiated: 5/31/2021
- * Last updated: 6/8/2021
+ * Last updated: 6/9/2021
  * 
  * */
 
@@ -558,7 +558,7 @@ public:
 
 	void prepareFBO()
 	{
-		// WILL DO SHORTLY
+		initBuffers();
 	}
 
 	// =======================================================================
@@ -1171,6 +1171,7 @@ public:
 	void resizeCallback(GLFWwindow *window, int width, int height)
 	{
 		glViewport(0, 0, width, height);
+		prepareFBO();
 	}
 };
 
@@ -1194,7 +1195,7 @@ int main(int argc, char **argv)
 	// and GL context, etc.
 
 	WindowManager *windowManager = new WindowManager();
-	windowManager->init(1280, 720);
+	windowManager->init(848, 480);
 	windowManager->setEventCallbacks(application);
 	application->windowManager = windowManager;
 
