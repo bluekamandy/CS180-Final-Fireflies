@@ -68,6 +68,7 @@ public:
 	// Our shader program
 	std::shared_ptr<Program> shaderGeometryPass;
 	std::shared_ptr<Program> shaderLightingPass;
+	std::shared_ptr<Program> shaderLightSphere;
 	//std::shared_ptr<Program> shaderSkybox;
 
 	// Shape to be used (from obj file)
@@ -214,10 +215,6 @@ public:
 		//Draw our scene - two meshes - right now to a texture
 		shaderGeometryPass->bind();
 
-		// Apply perspective projection. OLD
-		// mat4 P = SetProjectionMatrix(prog);
-		// mat4 V = SetView(prog);
-
 		// Create the matrices
 		glUniformMatrix4fv(shaderGeometryPass->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
 		SetView(shaderGeometryPass);
@@ -226,9 +223,6 @@ public:
 		// Grayish Brown: [Red:0.394 green:0.317 blue:0.250 alpha:1.0]
 		SetMaterialColor(shaderGeometryPass, vec3(0.394, 0.317, 0.250));
 		drawTrees(Model);
-
-		drawSpheres(Model);
-		updateFireflyPositionsUsingPaths(frametime);
 
 		// Ground
 		textureGround->bind(shaderGeometryPass->getUniform("texture0"));
@@ -245,6 +239,7 @@ public:
 		*/
 
 		shaderLightingPass->bind();
+		//glUniformMatrix4fv(shaderLightingPass->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
 		SetView(shaderLightingPass);
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, gPosition);
@@ -287,6 +282,31 @@ public:
 			assert(GLTextureWriter::WriteImage(depthBuf, "depthBuf.png"));
 			FirstTime = false;
 		}
+
+		/*
+		* COPY GEOMETRY'S DEPTH BUFFER TO DEFAULT FRAMEBUFFER'S DEPTH BUFFER
+		*/
+
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, gBuffer);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0); // write to default framebuffer
+		// blit to default framebuffer. Note that this may or may not work as the internal formats of both the FBO and default framebuffer have to match.
+		// the internal formats are implementation defined. This works on all of my systems, but if it doesn't on yours you'll likely have to write to the
+		// depth buffer in another shader stage (or somehow see to match the default framebuffer's internal format with the FBO's internal format).
+		glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+		/*
+		* SPHERE LIGHTS
+		*/
+
+		shaderLightSphere->bind();
+		glUniformMatrix4fv(shaderLightSphere->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
+		SetView(shaderLightSphere);
+
+		drawSpheres(Model);
+		updateFireflyPositionsUsingPaths(frametime);
+
+		shaderLightSphere->unbind();
 
 		/*
 		*  SKYBOX
@@ -403,6 +423,29 @@ public:
 		shaderLightingPass->addUniform("gPosition");
 		shaderLightingPass->addUniform("gNormal");
 		shaderLightingPass->addUniform("gColorSpec");
+
+		/*
+		*  SPHERE PASS: THE LIGHTS ARE PLACED ON TOP AFTER DEFERRED RENDERING
+		*/
+
+		shaderLightSphere = make_shared<Program>();
+		shaderLightSphere->setVerbose(false);
+		shaderLightSphere->setShaderNames(
+			resourceDirectory + "/sphere_vert.glsl",
+			resourceDirectory + "/sphere_frag.glsl");
+		if (!shaderLightSphere->init())
+		{
+			std::cerr << "One or more shaders failed to compile... exiting!" << std::endl;
+			exit(1);
+		}
+		shaderLightSphere->addUniform("P");
+		shaderLightSphere->addUniform("V");
+		shaderLightSphere->addUniform("M");
+		shaderLightSphere->addUniform("texture0");
+		shaderLightSphere->addUniform("MatAmb");
+		shaderLightSphere->addUniform("MatDif");
+		shaderLightSphere->addAttribute("vertPos");
+		shaderLightSphere->addAttribute("vertNor");
 
 		/*
 		*  LOAD TEXTURES
@@ -926,10 +969,10 @@ public:
 			//draw the torso with these transforms
 			Model->pushMatrix();
 			Model->scale(vec3(0.025, 0.025, 0.025));
-			SetMaterialColor(shaderGeometryPass, lightColors[i]);
+			SetMaterialColor(shaderLightSphere, lightColors[i]);
 			// glUniformMatrix4fv(prog->getUniform("M"), 1, GL_FALSE, value_ptr(Model->topMatrix()));
-			setModel(shaderGeometryPass, Model);
-			sphere->draw(shaderGeometryPass);
+			setModel(shaderLightSphere, Model);
+			sphere->draw(shaderLightSphere);
 			Model->popMatrix();
 
 			Model->popMatrix();
@@ -1140,7 +1183,7 @@ int main(int argc, char **argv)
 	// and GL context, etc.
 
 	WindowManager *windowManager = new WindowManager();
-	windowManager->init(1280, 720);
+	windowManager->init(1920, 1080);
 	windowManager->setEventCallbacks(application);
 	application->windowManager = windowManager;
 
