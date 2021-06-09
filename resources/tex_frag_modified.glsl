@@ -16,9 +16,16 @@ const int NR_LIGHTS = 250;
 uniform vec3 lightPositions[NR_LIGHTS];
 uniform vec3 lightColors[NR_LIGHTS];
 
+uniform mat4 P;
+uniform mat4 V;
+uniform mat4 M;
+
 // You could make this into an array if you wanted different strength lights.
-float linear = 4.0;
-float quadratic = 5.0;
+// float linear = -5.0;
+// float quadratic = -1.0;
+
+float linear = -5.0;
+float quadratic = 15.0;
 
 uniform vec3 viewPos; // EPos from our labs. But here we set it as a uniform.
 
@@ -34,51 +41,40 @@ void main(){
    float Specular = texture(gColorSpec, texCoord).a;
 
    // then calculate lighting as usual
-   vec3 lighting  = Diffuse * 0.0; // hard-coded ambient component
+   vec3 lighting  = Diffuse * 0.1; // hard-coded ambient component
    vec3 viewDir  = normalize(viewPos - FragPos);
+
+
+   mat4 verticalShift = mat4(1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, -0.75, 0.0, 1.0);
+
 
    // Keep for when we add more lights.
    for(int i = 0; i < NR_LIGHTS; ++i)
    {
+      // This works, but the lights are too high.
+      vec4 transformedLight = verticalShift * V * vec4(lightPositions[i], 1);
+
+      // Slows down computer. Rotation of lights seems amplified.
+      // vec4 transformedLight = P * V * vec4(lightPositions[i], 1);
+
+      // This doesn't work. The light is way too bright and it's slow.
+      // vec4 transformedLight = P * V * M * vec4(lightPositions[i], 1);
+      
       // diffuse
-      vec3 lightDir = normalize(lightPositions[i] - FragPos);
+      vec3 lightDir = normalize(transformedLight.xyz - FragPos);
       vec3 diffuse = max(dot(Normal, lightDir), 0.0) * Diffuse * lightColors[i];
       // specular
       vec3 halfwayDir = normalize(lightDir + viewDir);  
       float spec = pow(max(dot(Normal, halfwayDir), 0.0), 16.0);
       vec3 specular = lightColors[i] * spec * Specular;
       // attenuation  HOLD OFF ON ATTENUATION FOR NOW
-      float distance = length(lightPositions[i] - FragPos);
+      float distance = length(transformedLight.xyz - FragPos);
       float attenuation = 1.0 / (1.0 + linear * distance + quadratic * distance * distance);
       diffuse *= attenuation;
       specular *= attenuation;
       lighting += diffuse + specular;        
    }
 
-   // FIRST WE DO IT WITH A SINGLE LIGHT
-
-//    vec3 lightDir = normalize(Ldir - FragPos);
-//    // vec3 diffuse = max(dot(Normal, lightDir), 0.0) * Diffuse * vec3(1.0); // replaced color with 1.0
-//    vec3 diffuse = max(dot(Normal, lightDir), 0.0) * Diffuse; 
-
-//    // specular
-//    vec3 halfwayDir = normalize(lightDir + viewDir);  
-//    float spec = pow(max(dot(Normal, halfwayDir), 0.0), 16.0);
-//    // vec3 specular = vec3(0.0,0.0,0.0) * spec * Specular; // replaced color with 1.0
-
-// ;   // attenuation NO ATTENUATION FOR NOW
-// //    float distance = length(Ldir - FragPos);
-// //    float attenuation = 1.0 / (1.0 + light.Linear * distance + light.Quadratic * distance * distance);
-// //    diffuse *= attenuation;
-// //    specular *= attenuation;
-//    lighting += diffuse;        
-
-//    // color = vec4(texColor.rgb + lighting, 1.0)
    color = vec4(lighting, 1.0);
-
-   // vec3 tColor = texture(texBuf, texCoord ).rgb;
-   // color = vec4(tColor, 1.0);
-   // if (abs(tColor.r) > 0.01 || abs(tColor.g) > 0.01)
-   //    color = vec4(0.9, 0.9, 0.9, 1.0);
 
 }

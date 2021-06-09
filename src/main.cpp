@@ -169,7 +169,7 @@ public:
 		glViewport(0, 0, width, height);
 
 		//camera movement - made continuous while keypressed
-		float speed = 0.005;
+		float speed = 0.01;
 		if (MOVEL)
 		{
 			g_eye -= speed * strafe;
@@ -239,8 +239,10 @@ public:
 		*/
 
 		shaderLightingPass->bind();
-		//glUniformMatrix4fv(shaderLightingPass->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
+
+		glUniformMatrix4fv(shaderLightingPass->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
 		SetView(shaderLightingPass);
+
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, gPosition);
 		glUniform1i(shaderLightingPass->getUniform("texBuf"), 0); //
@@ -548,6 +550,15 @@ public:
 			cout << "Error setting up frame buffer - exiting" << endl;
 			exit(0);
 		}
+	}
+
+	/*
+	* FOR RESIZING SCREEN
+	*/
+
+	void prepareFBO()
+	{
+		// WILL DO SHORTLY
 	}
 
 	// =======================================================================
@@ -1040,20 +1051,20 @@ public:
 	}
 
 	/*normal game camera */
-	// void SetView(shared_ptr<Program> shader)
-	// {
-	// 	mat4 Cam = lookAt(g_eye, g_lookAt, vec3(0, 1, 0));
-
-	// 	glUniformMatrix4fv(shader->getUniform("V"), 1, GL_FALSE, value_ptr(Cam));
-	// }
-
-	/*normal game camera */
-	mat4 SetView(shared_ptr<Program> curShade)
+	void SetView(shared_ptr<Program> shader)
 	{
 		mat4 Cam = lookAt(g_eye, g_lookAt, vec3(0, 1, 0));
-		glUniformMatrix4fv(curShade->getUniform("V"), 1, GL_FALSE, value_ptr(Cam));
-		return Cam;
+
+		glUniformMatrix4fv(shader->getUniform("V"), 1, GL_FALSE, value_ptr(Cam));
 	}
+
+	// /*normal game camera */
+	// mat4 SetView(shared_ptr<Program> curShade)
+	// {
+	// 	mat4 Cam = lookAt(g_eye, g_lookAt, vec3(0, 1, 0));
+	// 	glUniformMatrix4fv(curShade->getUniform("V"), 1, GL_FALSE, value_ptr(Cam));
+	// 	return Cam;
+	// }
 
 	// helper function to set materials for shading
 	void SetMaterial(shared_ptr<Program> curS, int i)
