@@ -25,6 +25,9 @@ public:
 	virtual void bind();
 	virtual void unbind();
 
+	// Masood addition
+	GLuint getProgramID() const { return pid; }
+
 	void addAttribute(const std::string &name);
 	void addUniform(const std::string &name);
 	GLint getAttribute(const std::string &name) const;

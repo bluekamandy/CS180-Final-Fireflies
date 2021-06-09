@@ -29,6 +29,16 @@
 #include <tiny_obj_loader/tiny_obj_loader.h>
 #define PI 3.1415927
 
+enum GBUFFER_TEXTURE_TYPE
+{
+	GBUFFER_TEXTURE_TYPE_POSITION,
+	GBUFFER_TEXTURE_TYPE_NORMAL,
+	GBUFFER_TEXTURE_TYPE_DIFFUSE,
+	GBUFFER_NUM_TEXTURES
+};
+
+#define TEXTURE_FINAL 3
+
 // value_ptr for glm
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -59,12 +69,11 @@ public:
 	// =======================================================================
 
 	// Our shader program
-	std::shared_ptr<Program> prog;
-	std::shared_ptr<Program> texProg;
-	std::shared_ptr<Program> skyboxProg;
+	std::shared_ptr<Program> geomPass;
+	std::shared_ptr<Program> lightPass;
+	std::shared_ptr<Program> skyboxDraw;
 
 	// Shape to be used (from obj file)
-	shared_ptr<Shape> nefertiti;
 	vector<shared_ptr<Shape>> tree;
 	shared_ptr<Shape> sphere;
 	shared_ptr<Shape> cube;
@@ -92,14 +101,26 @@ public:
 	GLuint quad_VertexArrayID;
 	GLuint quad_vertexbuffer;
 
-	//reference to texture FBO
-	GLuint gBuffer;
-	GLuint gPosition, gNormal, gColorSpec;
-	GLuint depthBuf;
-
 	bool FirstTime = true;
 	bool Defer = false;
 	// int gMat = 0;
+
+	// =======================================================================
+	// DATA: FRAMEBUFFERS
+	// =======================================================================
+
+	/*
+	* Attempting to split out draws to buffers.
+	*/
+
+	GLuint frameBufObj = 0;
+	GLuint Tex[GBUFFER_NUM_TEXTURES];
+	GLuint depthTex = 0, finalTex = 0;
+
+	// //reference to texture FBO
+	// GLuint gBuffer;
+	// GLuint gPosition, gNormal, gColorSpec;
+	// GLuint depthBuf;
 
 	// =======================================================================
 	// DATA: GROUND PLANE
@@ -185,7 +206,7 @@ public:
 		}
 
 		// For deferred shading.
-		glBindFramebuffer(GL_FRAMEBUFFER, gBuffer);
+		glBindFramebuffer(GL_FRAMEBUFFER, frameBufObj);
 
 		// Clear framebuffer.
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -201,126 +222,148 @@ public:
 		Projection->pushMatrix();
 		Projection->perspective(45.0f, aspect, 0.01f, 100.0f);
 
-		/*
-		*  GEOMETRY
-		*/
+		/* now draw the actual output */
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+		geometryPass(frametime, Model, Projection);
+		lightingPass(frametime, Model, Projection);
+		skyboxPass(frametime, Model, Projection);
+
+		// Pop matrix stacks.
+		Projection->popMatrix();
+
+		/*code to write out the FBO (texture) just once -an example*/
+		if (FirstTime)
+		{
+			GBUFFER_TEXTURE_TYPE_POSITION,
+				GBUFFER_TEXTURE_TYPE_NORMAL,
+				GBUFFER_TEXTURE_TYPE_DIFFUSE,
+				GBUFFER_NUM_TEXTURES
+					assert(GLTextureWriter::WriteImage(frameBufObj +, "frameBufObj.png"));
+			assert(GLTextureWriter::WriteImage(frameBufObj + GBUFFER_TEXTURE_TYPE_POSITION, "gPos.png"));
+			assert(GLTextureWriter::WriteImage(frameBufObj + GBUFFER_TEXTURE_TYPE_NORMAL, "gNorm.png"));
+			assert(GLTextureWriter::WriteImage(frameBufObj + GBUFFER_TEXTURE_TYPE_DIFFUSE, "gColorSpec.png"));
+			assert(GLTextureWriter::WriteImage(frameBufObj, "depthBuf.png"));
+			FirstTime = false;
+		}
+	}
+
+	// =======================================================================
+	// RENDER PASSES
+	// =======================================================================
+
+	// Prepare the framebuffer and openGL state for the geometry pass
+	void geometryInit(shared_ptr<MatrixStack> Model, shared_ptr<MatrixStack> Projection)
+	{
+		glUseProgram(geomPass->getProgramID());
+
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, frameBufObj);
+		glDrawBuffer(GL_COLOR_ATTACHMENT0 + TEXTURE_FINAL);
+		glClear(GL_COLOR_BUFFER_BIT);
+
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, frameBufObj);
+		GLenum DrawBuffers[] = {GL_COLOR_ATTACHMENT0 + GBUFFER_TEXTURE_TYPE_POSITION,
+								GL_COLOR_ATTACHMENT0 + GBUFFER_TEXTURE_TYPE_NORMAL,
+								GL_COLOR_ATTACHMENT0 + GBUFFER_TEXTURE_TYPE_DIFFUSE};
+		glDrawBuffers(3, DrawBuffers);
+
+		glDepthMask(GL_TRUE);
+
+		// Clear the screen
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glEnable(GL_DEPTH_TEST);
+
+		//glUniformMatrix4fv(geomPass->getUniform("P"), 1, GL_FALSE, glm::value_ptr(Projection));
+		glUniformMatrix4fv(geomPass->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
+		SetView(geomPass);
+	}
+
+	/*
+	*  GEOMETRY
+	*/
+
+	void geometryPass(float frametime, shared_ptr<MatrixStack> Model, shared_ptr<MatrixStack> Projection)
+	{
+		geometryInit(Model, Projection);
 
 		//Draw our scene - two meshes - right now to a texture
-		prog->bind();
-
-		// Apply perspective projection. OLD
-		// mat4 P = SetProjectionMatrix(prog);
-		// mat4 V = SetView(prog);
-
-		// Create the matrices
-		glUniformMatrix4fv(prog->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
-		SetView(prog);
-
-		//draw a circle of Nefs
-		// float tx, tz, theta = 0;
-		// for (int i = 0; i < 10; i++)
-		// {
-		// 	tx = (4.f) * sin(theta);
-		// 	tz = (4.f) * cos(theta);
-		// 	/* draw left mesh */
-		// 	mat4 trans;
-		// 	mat4 r1, r2;
-		// 	trans = translate(mat4(1.0f), vec3(tx, 0.5f, tz));
-		// 	r2 = rotate(mat4(1.0f), 3.14f + theta, vec3(0, 1, 0));
-		// 	r1 = rotate(mat4(1.0f), -radians(90.0f), vec3(1, 0, 0));
-		// 	SetModel(prog, trans * r2 * r1);
-		// 	SetMaterial(prog, i % 4);
-		// 	nefertiti->draw(prog);
-		// 	theta += 6.28f / 10.f;
-		// }
+		geomPass->bind();
 
 		// Trees
 		// Grayish Brown: [Red:0.394 green:0.317 blue:0.250 alpha:1.0]
-		SetMaterialColor(prog, vec3(0.394, 0.317, 0.250));
+		SetMaterialColor(geomPass, vec3(0.394, 0.317, 0.250));
 		drawTrees(Model);
 
 		drawSpheres(Model);
 		updateFireflyPositionsUsingPaths(frametime);
 
 		// Ground
-		textureGround->bind(prog->getUniform("texture0"));
-		drawGround(prog);
+		textureGround->bind(geomPass->getUniform("texture0"));
+		drawGround(geomPass);
 
-		prog->unbind();
+		// Disable and unbind
+		GLSL::disableVertexAttribArray(geomPass->getAttribute("aPos"));
+		GLSL::disableVertexAttribArray(geomPass->getAttribute("aNor"));
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
-		/* now draw the actual output */
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glDepthMask(GL_FALSE);
 
-		/*
-		*  LIGHTING
-		*/
+		geomPass->unbind();
+	}
 
-		texProg->bind();
-		// FIXME: Next 3 lines may be unnecessary if we're just using deferred.
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, gPosition);
-		glUniform1i(texProg->getUniform("texBuf"), 0); //
-		// Masood addition
-		glActiveTexture(GL_TEXTURE0 + 1);
-		glBindTexture(GL_TEXTURE_2D, gNormal);
-		glActiveTexture(GL_TEXTURE0 + 2);
-		glBindTexture(GL_TEXTURE_2D, gColorSpec);
-		glUniform1i(texProg->getUniform("gPosition"), 0);
-		glUniform1i(texProg->getUniform("gNormal"), 1);
-		glUniform1i(texProg->getUniform("gColorSpec"), 2);
-		// End Masood addition
-		glUniform3f(texProg->getUniform("Ldir"), g_light.x, g_light.y, g_light.z);
+	/*
+	*  LIGHTING
+	*/
+
+	void lightingPass(float frametime, shared_ptr<MatrixStack> Model, shared_ptr<MatrixStack> Projection)
+	{
+		lightPass->bind();
+
+		for (int i = 0; i < GBUFFER_NUM_TEXTURES; i++)
+		{
+			glActiveTexture(GL_TEXTURE0 + j);
+			glBindTexture(GL_TEXTURE_2D, Tex[j]);
+		}
+
+		glUniform1i(lightPass->getUniform("gPosition"), GBUFFER_TEXTURE_TYPE_POSITION);
+		glUniform1i(lightPass->getUniform("gNormal"), GBUFFER_TEXTURE_TYPE_DIFFUSE);
+		glUniform1i(lightPass->getUniform("gColorSpec"), GBUFFER_TEXTURE_TYPE_NORMAL);
+		glUniform3f(lightPass->getUniform("Ldir"), g_light.x, g_light.y, g_light.z);
 		glEnableVertexAttribArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, quad_vertexbuffer);
 		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void *)0);
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		glDisableVertexAttribArray(0);
 
-		texProg->unbind();
+		lightPass->unbind();
+	}
 
-		/*code to write out the FBO (texture) just once -an example*/
-		if (FirstTime)
-		{
-			assert(GLTextureWriter::WriteImage(gBuffer, "gBuf.png"));
-			assert(GLTextureWriter::WriteImage(gPosition, "gPos.png"));
-			assert(GLTextureWriter::WriteImage(gNormal, "gNorm.png"));
-			assert(GLTextureWriter::WriteImage(gColorSpec, "gColorSpec.png"));
-			assert(GLTextureWriter::WriteImage(depthBuf, "depthBuf.png"));
-			FirstTime = false;
-		}
+	/*
+	*  SKYBOX
+	*/
 
-		/*
-		*  SKYBOX
-		*/
+	void skyboxPass(float frametime, shared_ptr<MatrixStack> Model, shared_ptr<MatrixStack> Projection)
+	{
+		glDrawBuffer(GL_COLOR_ATTACHMENT0 + TEXTURE_FINAL);
 
 		//to draw the sky box bind the right shader
-		skyboxProg->bind();
-
-		// glActiveTexture(GL_TEXTURE0 + 1);
-		// glBindTexture(GL_TEXTURE_2D, gNormal);
-		// glActiveTexture(GL_TEXTURE0 + 2);
-		// glBindTexture(GL_TEXTURE_2D, gColorSpec);
-		// glUniform1i(texProg->getUniform("gPosition"), 0);
-		// glUniform1i(texProg->getUniform("gNormal"), 1);
-		// glUniform1i(texProg->getUniform("gColorSpec"), 2);
+		skyboxDraw->bind();
 
 		//set the projection matrix - can use the same one
-		glUniformMatrix4fv(skyboxProg->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
+		glUniformMatrix4fv(skyboxDraw->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
 
 		//set the depth function to always draw the box!
 		glDepthFunc(GL_LEQUAL);
 
-		SetView(skyboxProg);
+		SetView(skyboxDraw);
 
 		//set and send model transforms - likely want a bigger cube
-		glUniformMatrix4fv(skyboxProg->getUniform("M"), 1, GL_FALSE, value_ptr(Model->topMatrix()));
+		glUniformMatrix4fv(skyboxDraw->getUniform("M"), 1, GL_FALSE, value_ptr(Model->topMatrix()));
 
 		//bind the cube map texture
 		glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
-
-		//draw the actual cube
-		//cube->draw(skyboxProg);
 
 		drawSkycube(Model);
 
@@ -328,10 +371,7 @@ public:
 		glDepthFunc(GL_LESS);
 
 		//unbind the shader for the skybox
-		skyboxProg->unbind();
-
-		// Pop matrix stacks.
-		Projection->popMatrix();
+		skyboxDraw->unbind();
 	}
 
 	// =======================================================================
@@ -354,62 +394,62 @@ public:
 		*  SKYBOX PROGRAM
 		*/
 
-		skyboxProg = make_shared<Program>();
-		skyboxProg->setVerbose(false);
-		skyboxProg->setShaderNames(
+		skyboxDraw = make_shared<Program>();
+		skyboxDraw->setVerbose(false);
+		skyboxDraw->setShaderNames(
 			resourceDirectory + "/simple_vert.glsl",
 			resourceDirectory + "/tex_frag_skybox.glsl");
-		skyboxProg->init();
-		skyboxProg->addUniform("P");
-		skyboxProg->addUniform("V");
-		skyboxProg->addUniform("M");
-		skyboxProg->addAttribute("vertPos");
+		skyboxDraw->init();
+		skyboxDraw->addUniform("P");
+		skyboxDraw->addUniform("V");
+		skyboxDraw->addUniform("M");
+		skyboxDraw->addAttribute("vertPos");
 
 		/*
 		*  GEOMETRY PASS: THIS DRAWS ALL THE GEOMETRY AND SETS UP THE GBUFFERS
 		*/
 
-		prog = make_shared<Program>();
-		prog->setVerbose(false);
-		prog->setShaderNames(
+		geomPass = make_shared<Program>();
+		geomPass->setVerbose(false);
+		geomPass->setShaderNames(
 			resourceDirectory + "/simple_vert.glsl",
 			resourceDirectory + "/gbuf_frag.glsl");
-		if (!prog->init())
+		if (!geomPass->init())
 		{
 			std::cerr << "One or more shaders failed to compile... exiting!" << std::endl;
 			exit(1);
 		}
-		prog->addUniform("P");
-		prog->addUniform("V");
-		prog->addUniform("M");
-		prog->addUniform("texture0");
-		prog->addUniform("MatAmb");
-		prog->addUniform("MatDif");
-		prog->addAttribute("vertPos");
-		prog->addAttribute("vertNor");
+		geomPass->addUniform("P");
+		geomPass->addUniform("V");
+		geomPass->addUniform("M");
+		geomPass->addUniform("texture0");
+		geomPass->addUniform("MatAmb");
+		geomPass->addUniform("MatDif");
+		geomPass->addAttribute("vertPos");
+		geomPass->addAttribute("vertNor");
 
 		/*
 		*  LIGHTING PASS: THIS IS WHERE DEFERRED SHADING HAPPENS
 		*/
 
-		texProg = make_shared<Program>();
-		texProg->setVerbose(false);
-		texProg->setShaderNames(
+		lightPass = make_shared<Program>();
+		lightPass->setVerbose(false);
+		lightPass->setShaderNames(
 			resourceDirectory + "/pass_vert.glsl",
 			resourceDirectory + "/tex_frag_modified.glsl");
-		if (!texProg->init())
+		if (!lightPass->init())
 		{
 			std::cerr << "One or more shaders failed to compile... exiting!" << std::endl;
 			exit(1);
 		}
-		texProg->addAttribute("vertPos");
-		texProg->addAttribute("vertTex");
-		texProg->addUniform("Ldir");
-		texProg->addUniform("lightPositions");
-		texProg->addUniform("lightColors");
-		texProg->addUniform("gPosition");
-		texProg->addUniform("gNormal");
-		texProg->addUniform("gColorSpec");
+		lightPass->addAttribute("vertPos");
+		lightPass->addAttribute("vertTex");
+		lightPass->addUniform("Ldir");
+		lightPass->addUniform("lightPositions");
+		lightPass->addUniform("lightColors");
+		lightPass->addUniform("gPosition");
+		lightPass->addUniform("gNormal");
+		lightPass->addUniform("gColorSpec");
 
 		/*
 		*  LOAD TEXTURES
@@ -445,45 +485,78 @@ public:
 		int width, height;
 		glfwGetFramebufferSize(windowManager->getHandle(), &width, &height);
 
-		//initialize the buffers -- from learnopengl.com
-		glGenFramebuffers(1, &gBuffer);
-		glBindFramebuffer(GL_FRAMEBUFFER, gBuffer);
+		// Create Space for Textures
+		glGenTextures(GBUFFER_NUM_TEXTURES, Tex);
+		glGenTextures(1, &depthTex);
+		glGenTextures(1, &finalTex);
 
-		// - position color buffer
-		glGenTextures(1, &gPosition);
-		glBindTexture(GL_TEXTURE_2D, gPosition);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, width, height, 0, GL_RGB, GL_FLOAT, NULL);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, gPosition, 0);
+		// G-Buffer (Position, Normals, Diffuse Color)
+		GLenum buffers[GBUFFER_NUM_TEXTURES];
+		for (int i = 0; i < GBUFFER_NUM_TEXTURES; i++)
+		{
+			glBindTexture(GL_TEXTURE_2D, Tex[i]);
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, NULL);
+			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+			glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D, Tex[i], 0);
 
-		// - normal color buffer
-		glGenTextures(1, &gNormal);
-		glBindTexture(GL_TEXTURE_2D, gNormal);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, width, height, 0, GL_RGB, GL_FLOAT, NULL);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, gNormal, 0);
+			buffers[i] = GL_COLOR_ATTACHMENT0 + i;
+		}
 
-		// - color + specular color buffer
-		glGenTextures(1, &gColorSpec);
-		glBindTexture(GL_TEXTURE_2D, gColorSpec);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, gColorSpec, 0);
+		// Depth
+		glBindTexture(GL_TEXTURE_2D, depthTex);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, width, height, 0, GL_DEPTH_STENCIL, GL_FLOAT_32_UNSIGNED_INT_24_8_REV, NULL);
+		glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, depthTex, 0);
 
-		glGenRenderbuffers(1, &depthBuf);
-		//set up depth necessary as rendering a mesh that needs depth test
-		glBindRenderbuffer(GL_RENDERBUFFER, depthBuf);
-		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, width, height);
-		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthBuf);
+		// Output to Screen
+		glBindTexture(GL_TEXTURE_2D, finalTex);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, NULL);
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + TEXTURE_FINAL, GL_TEXTURE_2D, finalTex, 0);
 
-		// CREATE ANOTHER BUFFER JUST FOR THE SHAPE OF THE LIGHT
+		assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 
-		//more FBO set up
-		GLenum DrawBuffers[3] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2};
-		glDrawBuffers(3, DrawBuffers);
+		// //initialize the buffers -- from learnopengl.com
+		// glGenFramebuffers(1, &gBuffer);
+		// glBindFramebuffer(GL_FRAMEBUFFER, gBuffer);
+
+		// // - position color buffer
+		// glGenTextures(1, &gPosition);
+		// glBindTexture(GL_TEXTURE_2D, gPosition);
+		// glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, width, height, 0, GL_RGB, GL_FLOAT, NULL);
+		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		// glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, gPosition, 0);
+
+		// // - normal color buffer
+		// glGenTextures(1, &gNormal);
+		// glBindTexture(GL_TEXTURE_2D, gNormal);
+		// glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, width, height, 0, GL_RGB, GL_FLOAT, NULL);
+		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		// glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, gNormal, 0);
+
+		// // - color + specular color buffer
+		// glGenTextures(1, &gColorSpec);
+		// glBindTexture(GL_TEXTURE_2D, gColorSpec);
+		// glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		// glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, gColorSpec, 0);
+
+		// glGenRenderbuffers(1, &depthBuf);
+		// //set up depth necessary as rendering a mesh that needs depth test
+		// glBindRenderbuffer(GL_RENDERBUFFER, depthBuf);
+		// glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, width, height);
+		// glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthBuf);
+
+		// // CREATE ANOTHER BUFFER JUST FOR THE SHAPE OF THE LIGHT
+
+		// //more FBO set up
+		// GLenum DrawBuffers[3] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2};
+		// glDrawBuffers(3, DrawBuffers);
 	}
 
 	// NOTE: This is never run. It must be for the framebuffer activity.
@@ -812,8 +885,8 @@ public:
 		Model->loadIdentity();
 		Model->translate(vec3(0.0, -5.0, 0.0));
 		Model->scale(vec3(20.0, 20.0, 20.0));
-		setModel(skyboxProg, Model);
-		cube->draw(skyboxProg);
+		setModel(skyboxDraw, Model);
+		cube->draw(skyboxDraw);
 		Model->popMatrix();
 	}
 
@@ -922,16 +995,16 @@ public:
 			//draw the torso with these transforms
 			Model->pushMatrix();
 			Model->scale(vec3(5.0, 5.0, 5.0));
-			setModel(prog, Model);
+			setModel(geomPass, Model);
 			for (int i = 0; i < tree.size(); i++)
 			{
 				if (i == 2 || i == 1)
 					continue;
 				if (i == 0)
-					textureTreeShell->bind(prog->getUniform("Texture0"));
+					textureTreeShell->bind(geomPass->getUniform("Texture0"));
 				if (i == 3)
-					textureTreeMain->bind(prog->getUniform("Texture0"));
-				tree[i]->draw(prog);
+					textureTreeMain->bind(geomPass->getUniform("Texture0"));
+				tree[i]->draw(geomPass);
 			}
 
 			Model->popMatrix();
@@ -955,10 +1028,10 @@ public:
 			//draw the torso with these transforms
 			Model->pushMatrix();
 			Model->scale(vec3(0.025, 0.025, 0.025));
-			SetMaterialColor(prog, lightColors[i]);
+			SetMaterialColor(geomPass, lightColors[i]);
 			// glUniformMatrix4fv(prog->getUniform("M"), 1, GL_FALSE, value_ptr(Model->topMatrix()));
-			setModel(prog, Model);
-			sphere->draw(prog);
+			setModel(geomPass, Model);
+			sphere->draw(geomPass);
 			Model->popMatrix();
 
 			Model->popMatrix();
