@@ -14,16 +14,11 @@ uniform vec3 MatDif;
 
 void main()
 {
-    // READ IN TEXTURE IF THERE IS ONE
-    vec4 texColor = texture(texture0, texCoord);
-
     // store the fragment position vector in the first gbuffer texture
     gPosition = fragPos;
     // also store the per-fragment normals into the gbuffer
     gNormal = normalize(fragNor);
     // and the diffuse per-fragment color
-    // NOTE: mixed in texColor.rgb because this seems to be the only place it makes sense to do that.
-    // gAlbedoSpec.rgb = MatDif + texColor.rgb;
     gAlbedoSpec.rgb = MatDif;
     // store specular intensity in gAlbedoSpec's alpha component
 	//constant could be from a texture

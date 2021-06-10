@@ -1,174 +1,234 @@
-Lab 8 - Build Instructions
-==========================
+Forest of Light:
+================
 
-Lab machines (Linux)
---------------------
+#### An exploration of deferred shading by Masood Kamandy
 
-The compiler, CMake, GLM, and GLFW3 should already be installed.
-Skip to "Building and Running the Lab/Assignment" below.
+![Forest of Light Main Image](website/images/kamandy_forest_01.png)
 
+*Forest of Light* is a demo created for my final project in [Prof. Zoë Wood's](https://engineering.ucsb.edu/people/zo-wood) CS180 Introduction to Computer Graphics course at UC Santa Barbara. The goal of the project was to implement deferred shading to create a calming atmosphere that evoked "fireflies," though I pivoted away from fireflies after I saw the multicolored lights effect in the forest. It's fireflies, but in a far stranger and more science fiction kind of way.
 
-Lab machines (Windows)
-----------------------
+Aside from the technology of deferred shading, this project is the culmination of my explorations of many different topics including: Blinn-Phong Illumination Model (including attenuation), Framebuffer Objects, Deferred Lighting, camera transforms, procedural model placement, bezier curves/splines and a smooth game camera.
 
-Visual Studio is installed, and solution files are provided, but you must install `GLM` and `GLFW3` locally.
+Table of Contents
+-----------------
 
-First, navigate to `Document` and enter the `Visual Studio 2017` folder.
-In this folder, create a folder called `SDKs`.
+1.  [Technologies Explored](#technolgies-explored)
+    -   [Deferred Shading](#deferred-shading)
+    -   [Framebuffer Objects](#framebuffer-objects)
+    -   [Attenuation](#attenuation)
 
-Next, download `glm-0.9.8.5.zip` at [this location](https://github.com/g-truc/glm/releases/tag/0.9.8.5).
-Extract the `glm` folder into your `SDKs` folder, then rename it to `glm-0.9.8.5`.
+2.  [Controls](#controls)
+3.  [Libraries](#libraries)
+4.  [Platforms](#platforms)
+5.  [How to Install](#how-to-install)
+6.  [Credits and Contacts](#credits-and-contacts)
 
-Finally, download `glfw-3.2.1.bin.WIN64.zip` at [this location](https://github.com/glfw/glfw/releases/tag/3.2.1).
-Extract the `glfw-3.2.1.bin.WIN64` folder into your `SDKs` folder.
+Technologies Explored
+---------------------
 
-Skip to "Building and Running the Lab/Assignment" below.
+There were several technologies that were key to my project that I explored on top of the core topics we learned in class for my final project.
 
+#### Deferred Shading
 
-Ubuntu Linux
-------------
+The most crucial technology in my final project was deferred shading.
 
-You'll need the following if you don't have them already.
+Deferred shading is a technique where lighting is applied in a separate pass that only takes into account light that affects the pixels on the screen. This is in contrast to forward shading, where all light is calculated every frame. The benefit of deferred shading is that many more lights can be displayed at acceptable framerates.
 
-	> sudo apt-get update
-	> sudo apt-get install g++
-	> sudo apt-get install cmake
-	> sudo apt-get install freeglut3-dev
-	> sudo apt-get install libxrandr-dev
-	> sudo apt-get install libxinerama-dev
-	> sudo apt-get install libxcursor-dev
-	> sudo apt-get install libglfw3-dev
-	> sudo apt-get install libglfw3-dev
+There are two major steps or *passes* that need to be implemented in deferred shading. That is the *geometry pass* and the *lighting pass*. In the geometry pass, geometry is calculated and then stored in 4 (3 in my implementation) separate textures in a framebuffer called the gBuffer. The gBuffer's 4 different textures are *position*, *normals*, *albedo*, and *specular*.
 
+![Visual depiction of the 4 textures within the gBuffer.](website/images/deferred_g_buffer.png)
 
-Mac OS X
+[Image Source](https://learnopengl.com/Advanced-Lighting/Deferred-Shading)
+
+In *Forest of Light*, deferred shading afforded me the possibility of easily rendering 250 to 500 lights without any performance penalty.
+
+The most crucial components, aside from establishing the render pipeline, are writing shaders for your geometry and lighting passes that take into account this new structure. With the geometry pass, our fragment shader does not write to the screen, but rather it writes to the gBuffer:
+
+    #version 330 core
+    layout (location = 0) out vec3 gPosition;
+    layout (location = 1) out vec3 gNormal;
+    layout (location = 2) out vec4 gAlbedoSpec;
+    
+    uniform sampler2D texture0;
+    in vec2 texCoord;
+    
+    in vec3 fragPos;
+    in vec3 fragNor;
+    
+    uniform vec3 MatAmb;
+    uniform vec3 MatDif;
+    
+    void main()
+    {
+        // store the fragment position vector in the first gbuffer texture
+        gPosition = fragPos;
+        // also store the per-fragment normals into the gbuffer
+        gNormal = normalize(fragNor);
+        // and the diffuse per-fragment color
+        gAlbedoSpec.rgb = MatDif;
+        // store specular intensity in gAlbedoSpec's alpha component
+        //constant could be from a texture
+        gAlbedoSpec.a = 0.5;
+    }
+
+The lighting fragment shader was equally interesting in that you apply calculations using the data stored in the gBuffer. This is what makes deferred shading far less expensive than forward shading. If you are using a game camera, you need to also remember to apply the view transformations to the light positions:
+
+    // Portions of this were adapted from instructions by Prof. Zoe Wood and
+    // LearnOpenGL.com's Deferred Shading tutorial.
+    
+    #version 330 core
+    
+    in vec2 texCoord;
+    out vec4 color;
+    
+    uniform sampler2D gPosition;
+    uniform sampler2D gNormal;
+    uniform sampler2D gColorSpec;
+    
+    const int NR_LIGHTS = 250;
+    uniform vec3 lightPositions[NR_LIGHTS];
+    uniform vec3 lightColors[NR_LIGHTS];
+    
+    uniform mat4 P;
+    uniform mat4 V;
+    uniform mat4 M;
+    
+    // You could make this into an array if you wanted different strength lights.
+    float linear = -5.0;
+    float quadratic = 15.0;
+    
+    uniform vec3 viewPos; // EPos from our labs. But here we set it as a uniform.
+    
+    void main(){
+    
+        // retrieve data from gbuffer
+        vec3 FragPos = texture(gPosition, texCoord).rgb;
+        vec3 Normal = texture(gNormal, texCoord).rgb;
+        vec3 Diffuse = texture(gColorSpec, texCoord).rgb;
+        float Specular = texture(gColorSpec, texCoord).a;
+    
+        // then calculate lighting as usual
+        vec3 lighting  = Diffuse * 0.1; // hard-coded ambient component
+        vec3 viewDir  = normalize(viewPos - FragPos);
+    
+        // the lights were off a bit, so I adjusted with a translation matrix for appearance.
+        mat4 verticalShift = mat4(1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, -0.75, 0.0, 1.0);
+    
+        for(int i = 0; i < NR_LIGHTS; ++i)
+        {
+            vec4 transformedLight = verticalShift * V * vec4(lightPositions[i], 1);
+            
+            // diffuse
+            vec3 lightDir = normalize(transformedLight.xyz - FragPos);
+            vec3 diffuse = max(dot(Normal, lightDir), 0.0) * Diffuse * lightColors[i];
+    
+            // specular
+            vec3 halfwayDir = normalize(lightDir + viewDir);  
+            float spec = pow(max(dot(Normal, halfwayDir), 0.0), 16.0);
+            vec3 specular = lightColors[i] * spec * Specular;
+    
+            // attenuation
+            float distance = length(transformedLight.xyz - FragPos);
+            float attenuation = 1.0 / (1.0 + linear * distance + quadratic * distance * distance);
+            diffuse *= attenuation;
+            specular *= attenuation;
+            lighting += diffuse + specular;        
+        }
+    
+        color = vec4(lighting, 1.0);
+    
+    }
+
+I experienced many difficulties in implementing a deferred shading pipeline, most of which had to do with properly understanding the state of the graphics card and the correct commands to create the framebuffer. The concept was fairly straightforward to understand, but implementing it properly was a challenge. Thankfully there were many support materials I was able to use to complete the project, including assistance and handouts by Prof. Wood. Another solution was just *getting organized and staying organized* and *dividing everything up into the smallest steps I could*.
+
+**References:**
+
+-   [LearnOpenGL – Deferred Shading](https://learnopengl.com/Advanced-Lighting/Deferred-Shading)
+-   [Real-Time Rendering, 4th Edition, by Tomas Akenine-Möller, Eric Haines, Naty Hoffman, Angelo Pesce, Michał Iwanicki, and Sébastien Hillaire](https://www.realtimerendering.com/)
+
+![Screen grab of Forest of Light with floating orbs lighting a forest from a distance.](website/images/kamandy_forest_02.png)
+
+#### Framebuffer Objects
+
+A framebuffer object allows a graphics programmer to store the result of a render pass somewhere other than the default framebuffer. This concept ended up being very important to my project.
+
+For the purpose of my project, the crucial part that required me to implement a framebuffer was the gBuffer itself. I also needed to manipulate framebuffers to draw with a bit of forward rendering after the deferred shading was complete. I needed to do this for the actual light portin of my spheres to appear as if they were lit.
+
+The process to do this was to copy the result of the deferred shading depth buffer into the default framebuffer's depth buffer.
+
+The code to do this utilize's OpenGL's `glBlitFramebuffer` to copy from one buffer to another. This process is thankfully described in many resources on the web:
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, gBuffer);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0); // write to default framebuffer
+    glBlitFramebuffer(
+        0, 0, SCR_WIDTH, SCR_HEIGHT, 0, 0, SCR_WIDTH, SCR_HEIGHT, GL_DEPTH_BUFFER_BIT, GL_NEAREST
+    );
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+Moving forward I believe this method could be used to also draw a skybox. My intention originally was to draw with a skybox, but the traditional forward rendering method of creating a skybox wasn't working. Although I ended up loving the look of the black sky and the stark light, I would like to explore using this copying of the depth buffer to create a skybox in programs using a deferred shading pipeline.
+
+**References:**
+
+-   [LearnOpenGL – Deferred Shading](https://learnopengl.com/Advanced-Lighting/Deferred-Shading)
+
+![Forest of Light Main Image](website/images/kamandy_forest_03.png)
+
+#### Attenuation
+
+In my attempt to create a firefly-like experience that was solely lit by floating orbs I explored many different approaches. One approach was to mask everything and to only light areas within a radius of each point light. It was an unexpected delight to find that *attenuation*, which we never implemented in our coursework, was actually exactly what I needed and gave me a great deal of control over the fall off of the light (see lighting pass fragment shader above).
+
+In my continued work with computer graphics, I intend to implement sliders to explore parameters like this. For this project, I just recompiled the shaders by running many, many times until I understood the effect of various attenuation values. A slider would have saved a lot of time.
+
+The attenuation I ended up using was a linear value of -5.0 and a quadratic of 15.0.
+
+**Reference:**
+
+-   [Blinn–Phong reflection model](https://en.wikipedia.org/wiki/Blinn%E2%80%93Phong_reflection_model)
+-   [Learn OpenGL - Deferred Shading](https://learnopengl.com/Advanced-Lighting/Deferred-Shading")
+
+Controls
 --------
 
-You can use homebrew/macports or install these manually.
+-   W, A, S, D: moves forward and back, strafes left and right
+-   Z: Show wireframe
+-   Trackpad: Look around
 
-- Xcode developer tools. You'll need to log in with your Apple ID.
-- CMake (<http://cmake.org/download/>)
-- [GLM](http://brewformulas.org/Glm)
-- [GLFW3](http://brewformulas.org/glfw)
-
-Make sure the commands `g++` and `cmake` work from the command prompt.
-
-
-Windows
--------
-
-First, download **Visual Studio Community 2017**.
-Make sure to install the C++ development tools.
-
-At this point, you can choose to follow the "Lab machines (Windows)" instructions above.
-
-Or, if you would rather do CMake (or if you have a different version of Visual Studio and don't want to change),
-follow these steps:
-
-Download these:
-
-- CMake (<http://cmake.org/download/>). Make sure to add CMake to the system
-  path when asked to do so.
-- [vcpkg](https://github.com/Microsoft/vcpkg)
-
-Make sure the command `cmake` works from the command prompt.
-
-Now use `vcpkg` to install `glm` and `glfw3`
-
-
-Building and Running the Lab/Assignment
-=======================================
-
-All platforms (except Lab windows)
-----------------------------------
-
-We'll perform an "out-of- source" build, which means that the binary files
-will not be in the same directory as the source files. In the folder that
-contains CMakeLists.txt, run the following.
-
-	> mkdir build
-	> cd build
-
-Then run one of the following *from the build folder*, depending on your
-choice of platform and IDE.
-
-
-OSX & Linux Makefile
---------------------
-
-	> cmake ..
-
-This will generate a Makefile that you can use to compile your code. To
-compile the code, run the generated Makefile.
-
-	> make -j4
-
-The `-j` argument speeds up the compilation by multithreading the compiler.
-This will generate an executable, which you can run by typing
-
-	> ./Lab3 ../resources
-
-To build in release mode, use `ccmake ..` and change `CMAKE_BUILD_TYPE` to
-`Release`. Press 'c' to configure then 'g' to generate. Now `make -j4` will
-build in release mode.
-
-To change the compiler, read [this
-page](http://cmake.org/Wiki/CMake_FAQ#How_do_I_use_a_different_compiler.3F).
-The best way is to use environment variables before calling cmake. For
-example, to use the Intel C++ compiler:
-
-	> which icpc # copy the path
-	> CXX=/path/to/icpc cmake ..
-
-
-OSX Xcode
+Libraries
 ---------
 
-	> cmake -G Xcode ..
+-   GLFW
+-   GLM
+-   GLAD
+-   tinyobjloader
 
-This will generate `Lab3.xcodeproj` project that you can open with Xcode.
+Platforms
+---------
 
-- To run, change the target to `Lab00` by going to Product -> Scheme -> Lab00.
-  Then click on the play button or press Command+R to run the application.
-- Edit the scheme to add command-line arguments (`../../resources`) or to run
-  in release mode.
+-   Windows
+-   Linux
+-   Mac
 
+How to Install
+--------------
 
-Windows Visual Studio 2017
---------------------------
+[Github Repository](https://github.com/masoodkamandy/CS180-Final-Fireflies)
 
-The provided `.sln` should work out of the box, provided you installed the two dependencies.
+This project uses the CMake to generate the development environment. In order to get the project running your machine you need to install the CMake and download the project.
 
-- To build and run the project, right-click on `Lab3` in the project explorer
-  and then click on "Set as Startup Project." Then press F7 (Build Solution)
-  and then F5 (Start Debugging).
-- To add a commandline argument, right-click on `Lab3` in
-  the project explorer and then click on "Properties" and then click on
-  "Debugging."
+After that, you need to create a build folder inside the project. Then you can build the project with the CMake. This has been testec on MacOS, but the CMakeLists.txt file and all libraries are cross-platform so it should work on Linux, MacOS, and Windows.
 
+    #MacOS commands
+    $ cd forest-of-light
+    $ mkdir build
+    $ cd build
+    $ cmake ..
+    $ make
+    $ ./defer
 
-Windows Visual Studio 2015
---------------------------
+Credits and Contacts
+--------------------
 
-Or on your own machine, if you would prefer to use CMake.
+-   Masood Kamandy ([masood@masoodkamandy.com](mailto:masood@masoodkamandy.com)): Software Engineer/Artist
+-   Tree Model by Unixium ([CGTrader Broadleaf - Hero field Free 3D model](https://www.cgtrader.com/free-3d-models/plant/other/broadleaf-hero-field))
 
-Use [vcpkg](https://github.com/Microsoft/vcpkg) to install `glfw3` and `glm`.
-
-	> cmake ..
-
-By default on Windows, CMake will generate a Visual Studio solution file,
-`Lab00.sln`, which you can open by double-clicking. If you get a version
-mismatch, you may have to specify your visual studio version, for example:
-
-	> cmake -G "Visual Studio 14 2015" ..
-
-Other versions of Visual Studio are listed on the CMake page
-(<http://cmake.org/cmake/help/latest/manual/cmake-generators.7.html>).
-
-- To build and run the project, right-click on `Lab3` in the project explorer
-  and then click on "Set as Startup Project." Then press F7 (Build Solution)
-  and then F5 (Start Debugging).
-- To add a commandline argument, right-click on `Lab3` in
-  the project explorer and then click on "Properties" and then click on
-  "Debugging."
-
+© Copyright 2021 Masood Kamandy. All rights reserved. Project completed June 9, 2021.

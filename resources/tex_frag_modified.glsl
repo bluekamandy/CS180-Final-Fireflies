@@ -44,9 +44,7 @@ void main(){
    vec3 lighting  = Diffuse * 0.1; // hard-coded ambient component
    vec3 viewDir  = normalize(viewPos - FragPos);
 
-
    mat4 verticalShift = mat4(1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, -0.75, 0.0, 1.0);
-
 
    // Keep for when we add more lights.
    for(int i = 0; i < NR_LIGHTS; ++i)
